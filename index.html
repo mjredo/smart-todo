@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smart To Do</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2564cf">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Smart To Do">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<script src="msal-browser.min.js"></script>
+<script src="config.js"></script>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#1e2126; --muted:#6b7280;
+    --line:#e3e6ea; --accent:#2564cf; --accent-ink:#fff;
+    --chip:#eef1f6; --chip-on:#2564cf; --chip-on-ink:#fff;
+    --red:#c62828; --amber:#b26a00; --green:#2e7d32; --shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1a1c20; --panel:#24272c; --ink:#e8eaed; --muted:#9aa0a6;
+      --line:#34383e; --accent:#5b8def; --chip:#31353b; --chip-on:#5b8def;
+      --chip-on-ink:#0d0f12; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);
+       padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  button{font:inherit;cursor:pointer}
+  .app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
+
+  /* ---- sidebar ---- */
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:14px 12px;
+        display:flex;flex-direction:column;gap:6px;overflow-y:auto;max-height:100vh}
+  .brand{font-weight:700;font-size:16px;padding:4px 6px 10px;display:flex;align-items:center;gap:8px}
+  .side h4{margin:14px 6px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .navbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;
+          color:var(--ink);padding:7px 8px;border-radius:7px;line-height:1.2}
+  .navbtn:hover{background:var(--chip)}
+  .navbtn.active{background:var(--accent);color:var(--accent-ink)}
+  .navbtn .ct{margin-left:auto;font-size:11px;color:var(--muted)}
+  .navbtn.active .ct{color:var(--accent-ink);opacity:.85}
+  .saved-row{display:flex;align-items:center;gap:2px}
+  .saved-row .navbtn{flex:1}
+  .mini{border:0;background:none;color:var(--muted);padding:4px 5px;border-radius:6px;opacity:.7}
+  .mini:hover{background:var(--chip);opacity:1}
+  .synced{font-size:10px;color:var(--muted);padding:2px 8px}
+
+  /* ---- main ---- */
+  .main{padding:16px 20px;overflow-y:auto;max-height:100vh}
+  .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .title{font-size:20px;font-weight:700;margin-right:auto}
+  .who{font-size:12px;color:var(--muted)}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);
+       padding:8px 13px;border-radius:8px;box-shadow:var(--shadow)}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.ghost{box-shadow:none;background:none}
+  .menubtn{display:none;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 11px}
+
+  /* ---- filter bar ---- */
+  .filters{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+           padding:12px;box-shadow:var(--shadow);margin-bottom:14px}
+  .frow{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .fgroup{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .fgroup label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;max-width:560px}
+  .chip{border:1px solid var(--line);background:var(--chip);color:var(--ink);
+        padding:5px 11px;border-radius:999px;font-size:12.5px;white-space:nowrap}
+  .chip.on{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
+  select,input[type=text],input[type=date],input[type=search]{
+    font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel);color:var(--ink);max-width:100%}
+  .search{min-width:170px}
+  .filteractions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+  .count{color:var(--muted);font-size:12px;margin-left:auto}
+
+  /* ---- quick add ---- */
+  .addbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--panel);
+          border:1px solid var(--line);border-radius:12px;padding:10px;box-shadow:var(--shadow);margin-bottom:14px}
+  .addbar input.addtext{flex:1;min-width:200px}
+  .addbar .hint{flex-basis:100%;color:var(--muted);font-size:11px;margin-top:-2px}
+
+  /* ---- task list ---- */
+  .tasks{display:flex;flex-direction:column;gap:8px}
+  .task{display:flex;align-items:flex-start;gap:10px;background:var(--panel);border:1px solid var(--line);
+        border-radius:10px;padding:11px 12px;box-shadow:var(--shadow)}
+  .task.done{opacity:.55}
+  .cbx{width:20px;height:20px;margin-top:1px;flex:0 0 auto;accent-color:var(--accent);cursor:pointer}
+  .tbody{flex:1;min-width:0}
+  .ttitle{font-size:14.5px;word-break:break-word}
+  .task.done .ttitle{text-decoration:line-through}
+  .tmeta{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center}
+  .badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--chip);color:var(--muted)}
+  .badge.list{background:rgba(37,100,207,.12);color:var(--accent)}
+  .badge.tag{background:rgba(46,125,50,.14);color:var(--green)}
+  .badge.due-today{background:rgba(178,106,0,.16);color:var(--amber)}
+  .badge.due-over{background:rgba(198,40,40,.15);color:var(--red)}
+  .tag-in-title{color:var(--accent);font-weight:600}
+  .empty{color:var(--muted);text-align:center;padding:40px}
+  .toast{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+         background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;
+         box-shadow:0 4px 16px rgba(0,0,0,.3);opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90vw}
+  .toast.show{opacity:1}
+  .center{display:flex;flex-direction:column;align-items:center;justify-content:center;
+          min-height:100vh;gap:14px;text-align:center;padding:24px}
+  .spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--accent);
+        border-radius:50%;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .banner{background:rgba(198,40,40,.12);color:var(--red);border:1px solid rgba(198,40,40,.3);
+          padding:12px 14px;border-radius:10px;margin-bottom:14px;font-size:13px}
+  code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:12px}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20}
+
+  /* ---- mobile ---- */
+  @media (max-width:760px){
+    .app{grid-template-columns:1fr}
+    .menubtn{display:inline-block}
+    .side{position:fixed;top:0;left:0;bottom:0;width:80vw;max-width:300px;z-index:30;
+          transform:translateX(-100%);transition:transform .22s;box-shadow:2px 0 18px rgba(0,0,0,.25)}
+    .side.open{transform:translateX(0)}
+    .scrim.open{display:block}
+    .main{max-height:none}
+    .title{font-size:18px}
+  }
+</style>
+</head>
+<body>
+
+<!-- Sign-in gate -->
+<div id="gate" class="center" style="display:none">
+  <div style="font-size:26px;font-weight:700">✓ Smart To&nbsp;Do</div>
+  <div class="who">A smarter front door to your Microsoft To&nbsp;Do</div>
+  <button class="btn primary" id="signInBtn">Sign in with Microsoft</button>
+  <div id="gateMsg" class="who" style="max-width:420px"></div>
+</div>
+
+<!-- Config-missing notice -->
+<div id="noconfig" class="center" style="display:none">
+  <div style="font-size:22px;font-weight:700">⚙️ One-time setup needed</div>
+  <div class="who" style="max-width:460px">
+    Open <code>config.js</code> and paste your <b>Client ID</b> and <b>Tenant ID</b> from
+    the Entra app registration. See <code>SETUP.md</code> for the walkthrough.
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="loading" class="center"><div class="spin"></div><div class="who">Loading…</div></div>
+
+<!-- App -->
+<div id="scrim" class="scrim"></div>
+<div id="app" class="app" style="display:none">
+  <aside class="side" id="side">
+    <div class="brand">✓ Smart To&nbsp;Do</div>
+    <h4>Views</h4>
+    <div id="builtins"></div>
+    <h4>Saved smart lists</h4>
+    <div id="savedLists"></div>
+    <div class="who" id="noSaved" style="padding:2px 8px;font-size:11px">
+      Build a filter, then “Save as smart list”.
+    </div>
+    <div class="synced" id="syncState"></div>
+    <h4>Lists</h4>
+    <div id="listNav"></div>
+    <div style="margin-top:auto;padding-top:12px">
+      <button class="navbtn" id="signOutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="menubtn" id="menuBtn" title="Menu">☰</button>
+      <div class="title" id="viewTitle">All open tasks</div>
+      <span class="who" id="whoami"></span>
+      <button class="btn ghost" id="refreshBtn" title="Reload from To Do">↻</button>
+    </div>
+
+    <div id="errBox"></div>
+
+    <!-- Quick add -->
+    <div class="addbar">
+      <input class="addtext" id="addText" type="text"
+             placeholder="Add a task…  (type #tags inline, e.g. Pay water #bills)">
+      <select id="addList" title="Which list"></select>
+      <input id="addDue" type="date" title="Due date (optional)">
+      <button class="btn primary" id="addBtn">Add</button>
+      <div class="hint">The task lands in the list you pick here — no need to open that list first.</div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <div class="frow">
+        <div class="fgroup">
+          <label>Lists</label>
+          <div class="chips" id="fLists"></div>
+        </div>
+        <div class="fgroup">
+          <label>Due</label>
+          <select id="fDue">
+            <option value="any">Any time</option>
+            <option value="today">Due today</option>
+            <option value="overdue">Overdue</option>
+            <option value="todayover">Today + overdue</option>
+            <option value="next7">Next 7 days</option>
+            <option value="none">No due date</option>
+          </select>
+        </div>
+        <div class="fgroup">
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="open">Open</option>
+            <option value="completed">Completed</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div class="fgroup">
+          <label>Search text</label>
+          <input class="search" id="fText" type="search" placeholder="contains…">
+        </div>
+      </div>
+      <div class="fgroup" style="margin-top:12px">
+        <label>Hashtags <span id="tagMode" class="who" style="text-transform:none;cursor:pointer">(match all — click to toggle ANY)</span></label>
+        <div class="chips" id="fTags"></div>
+      </div>
+      <div class="filteractions">
+        <button class="btn" id="clearBtn">Clear filters</button>
+        <button class="btn primary" id="saveBtn">＋ Save as smart list</button>
+        <span class="count" id="count"></span>
+      </div>
+    </div>
+
+    <div class="tasks" id="taskList"></div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* =======================================================================
+   Smart To Do  -  universal (PWA) build
+   ===================================================================== */
+const CFG   = window.SMARTTODO_CONFIG || {};
+const GRAPH = "https://graph.microsoft.com/v1.0";
+const SCOPES = ["Tasks.ReadWrite", "Files.ReadWrite.AppFolder", "User.Read"];
+const LS_SAVED = "smarttodo.saved.v1";
+const CLOUD_FILE = "/me/drive/special/approot:/smart-lists.json:/content";
+const IS_MOBILE = window.matchMedia("(display-mode: standalone)").matches ||
+                  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+let account, LISTS = [], TASKS = [], TAGS = [];
+let filter = defaultFilter();
+let activeSaved = null;
+let tagModeAll = true;
+let cloudOK = false;
+
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const el = (t,c,txt)=>{ const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e; };
+function defaultFilter(){ return { lists:[], due:"any", status:"open", text:"", tags:[] }; }
+
+/* ---------- boot / auth ---------- */
+async function boot(){
+  if(!CFG.clientId || String(CFG.clientId).startsWith("PASTE") ||
+     !CFG.tenantId || String(CFG.tenantId).startsWith("PASTE")){ show("noconfig"); return; }
+
+  // Redirect URI = wherever this page actually lives (localhost or GitHub Pages).
+  const redirectUri = CFG.redirectUri && !String(CFG.redirectUri).startsWith("http://localhost")
+      ? CFG.redirectUri
+      : (location.origin + location.pathname);
+
+  window.msalApp = new msal.PublicClientApplication({
+    auth:{ clientId:CFG.clientId, authority:"https://login.microsoftonline.com/"+CFG.tenantId, redirectUri },
+    cache:{ cacheLocation:"localStorage" }
+  });
+  await window.msalApp.initialize();
+
+  try{ const r = await window.msalApp.handleRedirectPromise(); if(r&&r.account) window.msalApp.setActiveAccount(r.account); }
+  catch(e){ console.warn(e); }
+
+  const accts = window.msalApp.getAllAccounts();
+  if(accts.length){ window.msalApp.setActiveAccount(accts[0]); account=accts[0]; return start(); }
+
+  show("gate");
+  $("#signInBtn").onclick = async ()=>{
+    $("#gateMsg").textContent = "Opening Microsoft sign-in…";
+    try{
+      if(IS_MOBILE){ await window.msalApp.loginRedirect({ scopes:SCOPES }); return; }
+      const r = await window.msalApp.loginPopup({ scopes:SCOPES, prompt:"select_account" });
+      window.msalApp.setActiveAccount(r.account); account=r.account; start();
+    }catch(e){ $("#gateMsg").textContent = "Sign-in failed: " + (e.message||e); }
+  };
+}
+
+async function token(){
+  const req = { scopes:SCOPES, account:window.msalApp.getActiveAccount() };
+  try{ return (await window.msalApp.acquireTokenSilent(req)).accessToken; }
+  catch(e){
+    if(IS_MOBILE){ await window.msalApp.acquireTokenRedirect(req); return new Promise(()=>{}); }
+    return (await window.msalApp.acquireTokenPopup(req)).accessToken;
+  }
+}
+
+async function gfetch(path, opts){
+  const t = await token();
+  const r = await fetch(path.startsWith("http")?path:GRAPH+path, {
+    ...opts,
+    headers:{ Authorization:"Bearer "+t, "Content-Type":"application/json", ...(opts&&opts.headers) }
+  });
+  if(!r.ok){ const b = await r.text().catch(()=>""); const err=new Error("Graph "+r.status+": "+b.slice(0,300)); err.status=r.status; throw err; }
+  return r.status===204 ? null : r.json();
+}
+
+/* ---------- data ---------- */
+async function start(){
+  show("loading"); wireUi();
+  try{
+    await loadAll();
+    await loadSaved();
+    renderNav(); renderFilterControls(); applyAndRender();
+    $("#whoami").textContent = account.username || "";
+    show("app");
+  }catch(e){ show("app"); error(e.message||String(e)); }
+}
+
+async function loadAll(){
+  LISTS = await pageAll("/me/todo/lists");
+  const all=[];
+  for(const L of LISTS){
+    const ts = await pageAll(`/me/todo/lists/${L.id}/tasks?$top=100`);
+    for(const t of ts){ t._listId=L.id; t._listName=L.displayName; all.push(t); }
+  }
+  TASKS = all;
+  const s=new Set(); for(const t of TASKS) parseTags(t.title||"").forEach(x=>s.add(x));
+  TAGS = [...s].sort((a,b)=>a.localeCompare(b));
+}
+async function pageAll(path){
+  let out=[], next=path;
+  while(next){ const j=await gfetch(next); out=out.concat(j.value||[]); next=j["@odata.nextLink"]||null; }
+  return out;
+}
+function parseTags(title){ return (title.match(/#[\p{L}\d_\-]+/gu)||[]).map(s=>s.slice(1).toLowerCase()); }
+
+/* ---------- filtering ---------- */
+function startOfToday(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+function taskDue(t){
+  if(!t.dueDateTime || !t.dueDateTime.dateTime) return null;
+  const raw=t.dueDateTime.dateTime;
+  const d=new Date(raw + (raw.endsWith("Z")?"":"Z")); d.setHours(0,0,0,0); return d;
+}
+function matches(t){
+  const done=t.status==="completed";
+  if(filter.status==="open" && done) return false;
+  if(filter.status==="completed" && !done) return false;
+  if(filter.lists.length && !filter.lists.includes(t._listId)) return false;
+  if(filter.due!=="any"){
+    const d=taskDue(t), today=startOfToday();
+    if(filter.due==="none"){ if(d) return false; }
+    else{
+      if(!d) return false;
+      const week=new Date(today); week.setDate(week.getDate()+7);
+      if(filter.due==="today"     && d.getTime()!==today.getTime()) return false;
+      if(filter.due==="overdue"   && d.getTime()>=today.getTime()) return false;
+      if(filter.due==="todayover" && d.getTime()>today.getTime())  return false;
+      if(filter.due==="next7"     && (d<today||d>week))            return false;
+    }
+  }
+  if(filter.tags.length){
+    const tt=parseTags(t.title||""); const has=filter.tags.map(x=>tt.includes(x));
+    if(tagModeAll ? has.some(v=>!v) : !has.some(v=>v)) return false;
+  }
+  if(filter.text && !(t.title||"").toLowerCase().includes(filter.text.toLowerCase())) return false;
+  return true;
+}
+function applyAndRender(){
+  const rows=TASKS.filter(matches).sort(sortTasks);
+  renderTasks(rows);
+  $("#count").textContent = rows.length+" task"+(rows.length===1?"":"s");
+  syncControlsToFilter(); reflectActiveNav();
+}
+function sortTasks(a,b){
+  const da=taskDue(a), db=taskDue(b);
+  if(da&&db) return da-db; if(da) return -1; if(db) return 1;
+  return (a.title||"").localeCompare(b.title||"");
+}
+
+/* ---------- render tasks ---------- */
+function renderTasks(rows){
+  const box=$("#taskList"); box.innerHTML="";
+  if(!rows.length){ box.appendChild(el("div","empty","No tasks match these filters.")); return; }
+  const today=startOfToday();
+  for(const t of rows){
+    const done=t.status==="completed";
+    const row=el("div","task"+(done?" done":""));
+    const cb=el("input"); cb.type="checkbox"; cb.className="cbx"; cb.checked=done;
+    cb.title=done?"Mark not done":"Mark done"; cb.onchange=()=>toggleDone(t,cb);
+    const body=el("div","tbody");
+    const title=el("div","ttitle"); title.innerHTML=highlightTags(t.title||"(untitled)"); body.appendChild(title);
+    const meta=el("div","tmeta"); meta.appendChild(badge(t._listName,"list"));
+    const d=taskDue(t);
+    if(d){ const over=d<today, tod=d.getTime()===today.getTime(); meta.appendChild(badge("📅 "+fmtDate(d), over?"due-over":(tod?"due-today":""))); }
+    parseTags(t.title||"").forEach(tg=>meta.appendChild(badge("#"+tg,"tag")));
+    body.appendChild(meta); row.appendChild(cb); row.appendChild(body); box.appendChild(row);
+  }
+}
+function badge(txt,cls){ return el("span","badge "+(cls||""),txt); }
+function highlightTags(s){
+  const esc=s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  return esc.replace(/#[\p{L}\d_\-]+/gu,m=>'<span class="tag-in-title">'+m+'</span>');
+}
+function fmtDate(d){
+  const diff=Math.round((d-startOfToday())/86400000);
+  if(diff===0)return "Today"; if(diff===1)return "Tomorrow"; if(diff===-1)return "Yesterday";
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+}
+
+/* ---------- sidebar nav ---------- */
+const BUILTINS=[
+  { id:"b_open", name:"All open",    icon:"📋", f:()=>({...defaultFilter()}) },
+  { id:"b_today",name:"Due today",   icon:"⭐", f:()=>({...defaultFilter(), due:"today"}) },
+  { id:"b_over", name:"Overdue",     icon:"⚠️", f:()=>({...defaultFilter(), due:"overdue"}) },
+  { id:"b_none", name:"No due date", icon:"○",  f:()=>({...defaultFilter(), due:"none"}) },
+];
+function renderNav(){
+  const b=$("#builtins"); b.innerHTML="";
+  for(const v of BUILTINS){
+    const btn=el("button","navbtn"); btn.dataset.nav=v.id;
+    btn.appendChild(el("span",null,v.icon)); btn.appendChild(el("span",null,v.name));
+    btn.appendChild(el("span","ct"));
+    btn.onclick=()=>{ filter=v.f(); activeSaved=null; setTitle(v.icon+" "+v.name); applyAndRender(); closeSide(); };
+    b.appendChild(btn);
+  }
+  const ln=$("#listNav"); ln.innerHTML="";
+  for(const L of LISTS){
+    const btn=el("button","navbtn"); btn.dataset.list=L.id;
+    btn.appendChild(el("span",null,"🗂")); btn.appendChild(el("span",null,L.displayName));
+    btn.appendChild(el("span","ct"));
+    btn.onclick=()=>{ filter={...defaultFilter(),lists:[L.id]}; activeSaved=null; setTitle("🗂 "+L.displayName); applyAndRender(); closeSide(); };
+    ln.appendChild(btn);
+  }
+  updateNavCounts();
+}
+function updateNavCounts(){
+  const open=TASKS.filter(t=>t.status!=="completed"), today=startOfToday();
+  const cnt={
+    b_open:open.length,
+    b_today:open.filter(t=>{const d=taskDue(t);return d&&d.getTime()===today.getTime();}).length,
+    b_over: open.filter(t=>{const d=taskDue(t);return d&&d<today;}).length,
+    b_none: open.filter(t=>!taskDue(t)).length,
+  };
+  $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=cnt[b.dataset.nav]||"");
+  $$("#listNav .navbtn").forEach(b=>{ const c=open.filter(t=>t._listId===b.dataset.list).length; b.querySelector(".ct").textContent=c||""; });
+}
+function reflectActiveNav(){
+  $$(".navbtn").forEach(b=>b.classList.remove("active"));
+  if(activeSaved){ const s=$(`[data-saved="${activeSaved}"]`); if(s)s.classList.add("active"); }
+}
+
+/* ---------- filter controls ---------- */
+function renderFilterControls(){
+  const fl=$("#fLists"); fl.innerHTML="";
+  for(const L of LISTS){
+    const c=el("button","chip"); c.textContent=L.displayName; c.dataset.list=L.id;
+    c.onclick=()=>{ toggleArr(filter.lists,L.id); activeSaved=null; applyAndRender(); };
+    fl.appendChild(c);
+  }
+  renderTagChips();
+  const sel=$("#addList"); sel.innerHTML="";
+  for(const L of LISTS){ const o=el("option",null,L.displayName); o.value=L.id; sel.appendChild(o); }
+}
+function renderTagChips(){
+  const ft=$("#fTags"); ft.innerHTML="";
+  if(!TAGS.length){ ft.appendChild(el("span","who","No #hashtags found in your task titles yet.")); return; }
+  for(const tg of TAGS){
+    const c=el("button","chip"); c.textContent="#"+tg; c.dataset.tag=tg;
+    c.onclick=()=>{ toggleArr(filter.tags,tg); activeSaved=null; applyAndRender(); };
+    ft.appendChild(c);
+  }
+}
+function syncControlsToFilter(){
+  $("#fDue").value=filter.due; $("#fStatus").value=filter.status; $("#fText").value=filter.text;
+  $$("#fLists .chip").forEach(c=>c.classList.toggle("on",filter.lists.includes(c.dataset.list)));
+  $$("#fTags .chip").forEach(c=>c.classList.toggle("on",filter.tags.includes(c.dataset.tag)));
+  $("#tagMode").textContent = tagModeAll ? "(match all — click to toggle ANY)" : "(match any — click to toggle ALL)";
+}
+function toggleArr(a,v){ const i=a.indexOf(v); i<0?a.push(v):a.splice(i,1); }
+
+/* ---------- saved smart lists (OneDrive-synced) ---------- */
+function readLS(){ try{ return JSON.parse(localStorage.getItem(LS_SAVED)||"[]"); }catch{ return []; } }
+function writeLS(){ localStorage.setItem(LS_SAVED, JSON.stringify(window._saved||[])); }
+
+async function loadSaved(){
+  try{
+    const j=await gfetch(CLOUD_FILE);           // file content (array)
+    window._saved = Array.isArray(j)?j:(j&&j.value)||[];
+    cloudOK=true; writeLS();
+    $("#syncState").textContent="✓ synced to OneDrive";
+  }catch(e){
+    if(e.status===404){ cloudOK=true; window._saved=readLS(); $("#syncState").textContent="✓ synced to OneDrive"; }
+    else{ cloudOK=false; window._saved=readLS(); $("#syncState").textContent="⚠ this device only (sync unavailable)"; }
+  }
+  renderSaved();
+}
+async function persistSaved(){
+  writeLS();
+  if(!cloudOK) return;
+  try{ await gfetch(CLOUD_FILE,{ method:"PUT", body:JSON.stringify(window._saved||[]) }); }
+  catch(e){ toast("Saved on this device (cloud sync failed)"); }
+}
+function renderSaved(){
+  const box=$("#savedLists"); box.innerHTML="";
+  const list=window._saved||[];
+  $("#noSaved").style.display=list.length?"none":"block";
+  for(const s of list){
+    const row=el("div","saved-row");
+    const btn=el("button","navbtn"); btn.dataset.saved=s.id;
+    btn.appendChild(el("span",null,"🔖")); btn.appendChild(el("span",null,s.name)); btn.appendChild(el("span","ct"));
+    btn.onclick=()=>{ filter=JSON.parse(JSON.stringify(s.filter)); tagModeAll=s.tagModeAll!==false; activeSaved=s.id; setTitle("🔖 "+s.name); applyAndRender(); closeSide(); };
+    const del=el("button","mini","✕"); del.title="Delete";
+    del.onclick=async e=>{ e.stopPropagation(); if(confirm(`Delete smart list “${s.name}”?`)){ window._saved=window._saved.filter(x=>x.id!==s.id); await persistSaved(); renderSaved(); } };
+    row.appendChild(btn); row.appendChild(del); box.appendChild(row);
+  }
+  for(const s of (window._saved||[])){
+    const sa=activeSaved, sm=tagModeAll, sf=filter;
+    filter=s.filter; tagModeAll=s.tagModeAll!==false;
+    const n=TASKS.filter(matches).length;
+    filter=sf; tagModeAll=sm; activeSaved=sa;
+    const b=$(`[data-saved="${s.id}"] .ct`); if(b)b.textContent=n||"";
+  }
+}
+async function saveCurrent(){
+  const name=prompt("Name this smart list:", suggestName()); if(!name) return;
+  window._saved=window._saved||[];
+  window._saved.push({ id:"s"+(window._saved.length)+"_"+name.replace(/\W+/g,"").slice(0,8), name, filter:JSON.parse(JSON.stringify(filter)), tagModeAll });
+  await persistSaved(); renderSaved(); toast("Saved “"+name+"”");
+}
+function suggestName(){
+  const p=[];
+  ({today:"Today",overdue:"Overdue",todayover:"Today+Overdue",next7:"Next 7d",none:"No date"}[filter.due]) && p.push({today:"Today",overdue:"Overdue",todayover:"Today+Overdue",next7:"Next 7d",none:"No date"}[filter.due]);
+  filter.lists.map(id=>LISTS.find(l=>l.id===id)).filter(Boolean).forEach(l=>p.push(l.displayName));
+  filter.tags.forEach(t=>p.push("#"+t));
+  if(filter.text)p.push('"'+filter.text+'"');
+  return p.join(" · ")||"My smart list";
+}
+
+/* ---------- writes ---------- */
+async function toggleDone(t,cb){
+  const target=cb.checked?"completed":"notStarted";
+  try{
+    await gfetch(`/me/todo/lists/${t._listId}/tasks/${t.id}`,{ method:"PATCH", body:JSON.stringify({status:target}) });
+    t.status=target; updateNavCounts(); renderSaved(); setTimeout(applyAndRender,350);
+    toast(cb.checked?"Completed ✓":"Reopened");
+  }catch(e){ cb.checked=!cb.checked; error(e.message); }
+}
+async function addTask(){
+  const raw=$("#addText").value.trim(); if(!raw){ $("#addText").focus(); return; }
+  const listId=$("#addList").value; const body={ title:raw };
+  const due=$("#addDue").value;
+  if(due){ body.dueDateTime={ dateTime:due+"T00:00:00.0000000", timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone }; }
+  $("#addBtn").disabled=true;
+  try{
+    const created=await gfetch(`/me/todo/lists/${listId}/tasks`,{ method:"POST", body:JSON.stringify(body) });
+    const L=LISTS.find(l=>l.id===listId); created._listId=listId; created._listName=L?L.displayName:"";
+    TASKS.push(created);
+    parseTags(created.title||"").forEach(x=>{ if(!TAGS.includes(x)){ TAGS.push(x); TAGS.sort(); renderTagChips(); } });
+    $("#addText").value=""; $("#addDue").value="";
+    updateNavCounts(); renderSaved(); applyAndRender(); toast("Added to "+created._listName);
+  }catch(e){ error(e.message); }
+  finally{ $("#addBtn").disabled=false; $("#addText").focus(); }
+}
+
+/* ---------- ui wiring ---------- */
+function openSide(){ $("#side").classList.add("open"); $("#scrim").classList.add("open"); }
+function closeSide(){ $("#side").classList.remove("open"); $("#scrim").classList.remove("open"); }
+function wireUi(){
+  $("#fDue").onchange   = e=>{ filter.due=e.target.value; activeSaved=null; applyAndRender(); };
+  $("#fStatus").onchange= e=>{ filter.status=e.target.value; activeSaved=null; applyAndRender(); };
+  $("#fText").oninput   = e=>{ filter.text=e.target.value; activeSaved=null; applyAndRender(); };
+  $("#tagMode").onclick = ()=>{ tagModeAll=!tagModeAll; activeSaved=null; applyAndRender(); };
+  $("#clearBtn").onclick= ()=>{ filter=defaultFilter(); tagModeAll=true; activeSaved=null; setTitle("All open tasks"); applyAndRender(); };
+  $("#saveBtn").onclick = saveCurrent;
+  $("#refreshBtn").onclick = async ()=>{ $("#refreshBtn").textContent="…"; try{ await loadAll(); renderFilterControls(); updateNavCounts(); renderSaved(); applyAndRender(); }catch(e){ error(e.message);} $("#refreshBtn").textContent="↻"; };
+  $("#addBtn").onclick  = addTask;
+  $("#addText").onkeydown = e=>{ if(e.key==="Enter") addTask(); };
+  $("#signOutBtn").onclick = ()=> IS_MOBILE ? window.msalApp.logoutRedirect() : window.msalApp.logoutPopup();
+  $("#menuBtn").onclick = openSide; $("#scrim").onclick = closeSide;
+}
+function setTitle(t){ $("#viewTitle").textContent=t; }
+
+/* ---------- helpers ---------- */
+function show(id){ ["gate","noconfig","loading","app"].forEach(x=>$("#"+x).style.display = x===id ? (x==="app"?"grid":"flex") : "none"); }
+function error(msg){ const b=$("#errBox"); b.innerHTML=""; b.appendChild(el("div","banner","⚠ "+msg)); }
+let toastTimer;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"),1800); }
+
+/* go */
+boot();
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
+</script>
+</body>
+</html>
