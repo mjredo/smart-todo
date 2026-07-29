@@ -177,9 +177,39 @@
   .step:hover .row-x{opacity:1}
   .addstep{display:flex;align-items:center;gap:10px;padding:10px 13px;color:var(--muted)}
   .addstep input{flex:1;border:0;background:none;outline:none}
+  .notehead{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+  .notehead>span{flex:1;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  .notebtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:5px 10px;border-radius:8px;font-size:12px}
+  .notebtn:hover{border-color:var(--accent);color:var(--accent)}
+  .notebtn svg{width:14px;height:14px}
   .notes{width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:12px;
-         outline:none;resize:vertical;min-height:84px;font-size:14px}
+         outline:none;resize:vertical;min-height:84px;max-height:220px;overflow:auto;font-size:14px;line-height:1.5;white-space:pre-wrap}
   .notes:focus{border-color:var(--accent)}
+  .notesview{width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:12px;max-height:220px;overflow:auto;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-word;cursor:text}
+  .notesview:empty::before{content:attr(data-empty);color:var(--muted)}
+  .notesview.big{max-height:none;min-height:52vh;cursor:default}
+  .notesview a,.mnote a{color:var(--accent);text-decoration:underline;word-break:break-all}
+  .modal{position:fixed;inset:0;background:rgba(10,14,20,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:.18s}
+  .modal.open{opacity:1}
+  .modalcard{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);width:min(580px,96vw);max-height:88vh;overflow:auto;padding:18px;transform:translateY(10px) scale(.98);transition:.18s}
+  .modal.open .modalcard{transform:none}
+  .mtitle{font-weight:700;font-size:17px}
+  .msub{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;margin-top:-6px}
+  .msub svg{width:14px;height:14px}
+  .mnote{width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:13px;outline:none;resize:vertical;min-height:140px;font-size:15px;line-height:1.55;white-space:pre-wrap}
+  .mnote:focus{border-color:var(--accent)}
+  .mnote.big{min-height:52vh}
+  .mfoot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+  .btn2{border:1px solid var(--line);background:var(--panel);padding:9px 16px;border-radius:10px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+  .btn2:hover{border-color:var(--accent)}
+  .btn2.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .minput{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:10px 12px;outline:none;font-size:14.5px}
+  .minput:focus{border-color:var(--accent)}
+  .locrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .locchip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);color:var(--muted);padding:5px 11px;border-radius:999px;font-size:12.5px}
+  .locchip svg{width:13px;height:13px}
+  .locchip .lx{cursor:pointer;color:var(--muted);font-weight:700;padding:0 2px}
+  .locchip .lx:hover{color:var(--red)}
   .dfoot{padding:12px 16px;border-top:1px solid var(--line-2);display:flex;justify-content:space-between;align-items:center;gap:10px}
   .dfoot small{color:var(--muted);font-size:11.5px}
   .del{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:none;color:var(--red);
@@ -438,7 +468,11 @@ const IC={
   pin:'<path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/>',
   up:'<path d="M18 15l-6-6-6 6"/>',
   down:'<path d="M6 9l6 6 6-6"/>',
-  x:'<path d="M18 6 6 18M6 6l12 12"/>'
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  expand:'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  mappin:'<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>'
 };
 const svg=(p,cls)=>`<svg class="icon ${cls||''}" viewBox="0 0 24 24">${p}</svg>`;
 
@@ -603,6 +637,14 @@ function renderTasks(rows){
 }
 function pill(txt,cls,icon){const p=el("span","pill "+(cls||""));if(icon)p.innerHTML=svg(icon);if(txt)p.appendChild(document.createTextNode(txt));return p;}
 function hlTags(s){const esc=s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));return esc.replace(/#[\p{L}\d_\-]+/gu,m=>'<span class="tag-hl">'+m+'</span>');}
+function escHtml(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function linkify(text){
+  return escHtml(text).replace(/https?:\/\/[^\s<]+/g,url=>{
+    let label=url;const q=url.match(/[?&]q=([^&\s]+)/);
+    if(/maps\.google|google\.com\/maps/.test(url))label=q?decodeURIComponent(q[1]).replace(",",", "):"Open map";
+    return `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+  });
+}
 function bodyText(t){return t.body&&t.body.content?t.body.content.replace(/<[^>]*>/g,"").trim():"";}
 
 /* ---------------- sidebar ---------------- */
@@ -961,10 +1003,99 @@ function fillDetail(t){
     s.value=rec;s.onchange=()=>{const start=dueISO||todayISO();const body={recurrence:buildRecurrence(s.value,start)};if(s.value!=="none"&&!dueISO)body.dueDateTime={dateTime:start+"T00:00:00.0000000",timeZone:"UTC"};patchTask(t,body);};return s;})(),null));
   b.appendChild(sec);
 
-  // notes
-  const nt=el("textarea","notes");nt.placeholder="Notes";nt.value=bodyText(t);
-  nt.onblur=()=>{const v=nt.value;if(v!==bodyText(t))patchTask(t,{body:{content:v,contentType:"text"}});};
-  b.appendChild(nt);
+  // notes — timestamped running log, expandable
+  const nWrap=el("div");
+  const nHead=el("div","notehead");
+  nHead.appendChild(el("span",null,"Notes"));
+  const addBtn=el("button","notebtn");addBtn.innerHTML=svg(IC.plus)+"<span>Add entry</span>";addBtn.onclick=()=>openNoteEntry(t);
+  const expBtn=el("button","notebtn");expBtn.innerHTML=svg(IC.expand)+"<span>Expand</span>";expBtn.onclick=()=>openNoteExpand(t);
+  nHead.appendChild(addBtn);nHead.appendChild(expBtn);
+  const view=el("div","notesview");view.setAttribute("data-empty","No notes yet — “Add entry” stamps the date & time. Tap to type.");
+  const bt=bodyText(t);view.innerHTML=bt?linkify(bt):"";view.title="Tap to edit · links open on tap";
+  view.onclick=e=>{if(e.target.closest("a"))return;                    // let 📍/links open
+    const ta=el("textarea","mnote");ta.value=bodyText(t);ta.style.minHeight="120px";
+    nWrap.replaceChild(ta,view);ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
+    ta.onblur=()=>{const v=ta.value;
+      if(v!==bodyText(t))patchTask(t,{body:{content:v,contentType:"text"}});  // rebuilds the drawer
+      else{view.innerHTML=bt?linkify(bt):"";if(ta.parentNode)nWrap.replaceChild(view,ta);}};};
+  nWrap.appendChild(nHead);nWrap.appendChild(view);
+  b.appendChild(nWrap);
+}
+function nowStamp(){return new Date().toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}
+const NOTE_DIV="────────────────────";
+const LS_PEOPLE="smarttodo.notepeople.v1";
+function loadPeople(){try{return JSON.parse(localStorage.getItem(LS_PEOPLE)||"[]");}catch{return[];}}
+function rememberPerson(name){if(!name)return;let a=loadPeople().filter(x=>x.toLowerCase()!==name.toLowerCase());a.unshift(name);localStorage.setItem(LS_PEOPLE,JSON.stringify(a.slice(0,12)));}
+function captureLocation(cb){
+  if(!navigator.geolocation){toast("Location isn't available on this device");cb(null);return;}
+  navigator.geolocation.getCurrentPosition(
+    p=>cb(p.coords.latitude.toFixed(5)+", "+p.coords.longitude.toFixed(5)),
+    ()=>{toast("Couldn't get location (permission or signal)");cb(null);},
+    {enableHighAccuracy:true,timeout:9000,maximumAge:120000});
+}
+function prependNote(t,txt,person,loc){
+  const head=[nowStamp()];
+  if(person)head.push("👤 "+person);
+  if(loc)head.push("📍 https://maps.google.com/?q="+loc.replace(/\s+/g,""));
+  const block=head.join("  ·  ")+"\n"+txt;
+  const ex=bodyText(t);
+  patchTask(t,{body:{content:ex?block+"\n\n"+NOTE_DIV+"\n\n"+ex:block,contentType:"text"}});
+}
+function showModal(build){
+  const wrap=el("div","modal");const card=el("div","modalcard");
+  build(card,()=>closeModal(wrap));
+  wrap.appendChild(card);wrap.onclick=e=>{if(e.target===wrap)closeModal(wrap);};
+  document.body.appendChild(wrap);requestAnimationFrame(()=>wrap.classList.add("open"));
+  return wrap;
+}
+function closeModal(w){w.classList.remove("open");setTimeout(()=>w.remove(),180);}
+function openNoteEntry(t){
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">New note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
+    // person / site (optional, with recent-values memory)
+    const who=el("input","minput");who.type="text";who.placeholder="Person / site (optional)";who.setAttribute("list","peopleList");
+    const dl=el("datalist");dl.id="peopleList";loadPeople().forEach(p=>{const o=el("option");o.value=p;dl.appendChild(o);});
+    card.appendChild(who);card.appendChild(dl);
+    // note text
+    const ta=el("textarea","mnote");ta.placeholder="Type your note…  (Ctrl/⌘+Enter to save)";card.appendChild(ta);
+    // optional location stamp (default off)
+    let loc=null;
+    const locRow=el("div","locrow");
+    const locBtn=el("button","notebtn");locBtn.innerHTML=svg(IC.mappin)+"<span>Add location</span>";
+    const chip=el("span","locchip");chip.style.display="none";
+    locBtn.onclick=()=>{locBtn.disabled=true;locBtn.querySelector("span").textContent="Locating…";
+      captureLocation(v=>{locBtn.disabled=false;locBtn.querySelector("span").textContent="Add location";
+        if(v){loc=v;locBtn.style.display="none";chip.style.display="inline-flex";chip.innerHTML=svg(IC.mappin)+v+' <b class="lx">✕</b>';
+          chip.querySelector(".lx").onclick=()=>{loc=null;chip.style.display="none";locBtn.style.display="inline-flex";};}});};
+    locRow.appendChild(locBtn);locRow.appendChild(chip);card.appendChild(locRow);
+    // footer
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const save=el("button","btn2 primary","Add to top");
+    save.onclick=()=>{const v=ta.value.trim();if(v){const person=who.value.trim();prependNote(t,v,person,loc);rememberPerson(person);toast("Note added");}close();};
+    foot.appendChild(cancel);foot.appendChild(save);card.appendChild(foot);
+    setTimeout(()=>ta.focus(),60);
+    ta.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter")save.click();};
+  });
+}
+function openNoteExpand(t){
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Notes</div>`;
+    const view=el("div","notesview big");
+    const renderView=()=>{const bt=bodyText(t);view.innerHTML=bt?linkify(bt):'<span style="color:var(--muted)">No notes yet.</span>';};
+    renderView();card.appendChild(view);
+    let ta=null,editing=false;
+    const saveEdit=()=>{if(ta){const v=ta.value;if(v!==bodyText(t))patchTask(t,{body:{content:v,contentType:"text"}});}};
+    const foot=el("div","mfoot");
+    const add=el("button","btn2 primary");add.textContent="＋ Add entry";add.onclick=()=>{saveEdit();close();openNoteEntry(t);};
+    const editBtn=el("button","btn2","Edit");
+    const cls=el("button","btn2","Close");cls.onclick=()=>{saveEdit();close();};
+    editBtn.onclick=()=>{
+      if(!editing){editing=true;ta=el("textarea","mnote big");ta.value=bodyText(t);card.replaceChild(ta,view);ta.focus();editBtn.textContent="Done";}
+      else{saveEdit();editing=false;renderView();card.replaceChild(view,ta);ta=null;editBtn.textContent="Edit";}
+    };
+    foot.appendChild(add);foot.appendChild(editBtn);foot.appendChild(cls);card.appendChild(foot);
+  });
 }
 function dRow(icon,label,control,onClear){
   const r=el("div","drow");r.innerHTML=`<span class="ic">${svg(icon)}</span><div class="rlabel">${label}</div>`;
@@ -1013,7 +1144,7 @@ function wireUi(){
   $("#menuBtn").onclick=openSide;
   $("#signOutBtn").onclick=()=>IS_MOBILE?window.msalApp.logoutRedirect():window.msalApp.logoutPopup();
   $("#scrim").onclick=()=>{closePop();closeDetail();closeSide();};
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"){closePop();closeDetail();closeSide();}});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){const m=document.querySelector(".modal");if(m){closeModal(m);return;}closePop();closeDetail();closeSide();}});
 }
 function setTitle(t){$("#viewTitle").textContent=t;}
 
