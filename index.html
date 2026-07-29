@@ -91,6 +91,9 @@
   .tool .badge-n{background:var(--accent);color:var(--accent-ink);font-size:11px;border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
   .tool select{border:0;background:none;outline:none;cursor:pointer}
   .menubtn{display:none}
+  .synchdr{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;white-space:nowrap}
+  .synchdr svg{width:14px;height:14px;stroke-width:2}
+  .synchdr.off{color:var(--amber)}
 
   .addwrap{padding:6px 22px 4px}
   .addbar{display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);
@@ -293,6 +296,7 @@
     <div class="topbar">
       <button class="tool iconly menubtn" id="menuBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div class="vtitle"><span id="viewTitle">All open</span><span class="vcount" id="count">0</span></div>
+      <span class="synchdr" id="syncHdr"></span>
       <div class="spacer"></div>
       <button class="tool" id="filterBtn">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v7l-4-2v-5z"/></svg>
@@ -305,6 +309,7 @@
           <option value="importance">Starred</option>
           <option value="title">A → Z</option>
           <option value="created">Newest</option>
+          <option value="completed">Recently completed</option>
         </select>
       </label>
       <button class="tool iconly" id="refreshBtn" title="Refresh"><svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button>
@@ -410,8 +415,8 @@ let filter=defaultFilter(), activeSaved=null, tagModeAll=true, sortKey="due", de
 let cloudOK=false, focusView=false, FOCUS=[];
 const LS_FOCUS="smarttodo.focus.v1";
 const CLOUD_FOCUS="/me/drive/special/approot:/focus.json:/content";
-const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1";
-let offline=false, outbox=[], tmpSeq=0;
+const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1", LS_LASTSYNC="smarttodo.lastsync.v1";
+let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LASTSYNC)||0;
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
@@ -429,6 +434,7 @@ const IC={
   check:'<path d="M20 6 9 17l-5-5"/>',
   inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2M5 5h14l3 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
   focus:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
+  done:'<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>',
   pin:'<path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/>',
   up:'<path d="M18 15l-6-6-6 6"/>',
   down:'<path d="M6 9l6 6 6-6"/>',
@@ -476,7 +482,7 @@ async function start(){
   show("loading"); wireUi(); loadOutbox();
   try{
     await loadAll(); await loadSaved(); FOCUS=await loadFocus();
-    offline=false; cacheData();
+    offline=false; cacheData(); markSynced();
   }catch(e){
     const snap=loadCache();
     if(snap){                                   // no network → use the last saved snapshot
@@ -549,8 +555,10 @@ const SORTS={
   due:(a,b)=>{const da=taskDue(a),db=taskDue(b);if(da&&db)return da-db;if(da)return -1;if(db)return 1;return (a.title||"").localeCompare(b.title||"");},
   importance:(a,b)=>((b.importance==="high")-(a.importance==="high"))||SORTS.due(a,b),
   title:(a,b)=>(a.title||"").localeCompare(b.title||""),
-  created:(a,b)=>new Date(b.createdDateTime||0)-new Date(a.createdDateTime||0)
+  created:(a,b)=>new Date(b.createdDateTime||0)-new Date(a.createdDateTime||0),
+  completed:(a,b)=>(compTime(b)-compTime(a))||SORTS.due(a,b)
 };
+function compTime(t){const c=t.completedDateTime&&t.completedDateTime.dateTime;return c?Date.parse(c):0;}
 function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
 function applyAndRender(){
   if(focusView){renderFocusView();return;}
@@ -604,6 +612,7 @@ const BUILTINS=[
   {id:"b_over",name:"Overdue",icon:IC.warn,f:()=>({...defaultFilter(),due:"overdue"})},
   {id:"b_star",name:"Starred",icon:IC.star,f:()=>({...defaultFilter()}),star:true},
   {id:"b_none",name:"No due date",icon:IC.list,f:()=>({...defaultFilter(),due:"none"})},
+  {id:"b_done",name:"Completed",icon:IC.done,f:()=>({...defaultFilter(),status:"completed"}),sort:"completed"},
 ];
 let starOnly=false;
 function renderNav(){
@@ -614,7 +623,7 @@ function renderNav(){
   for(const v of BUILTINS){
     const btn=el("button","navbtn");btn.dataset.nav=v.id;
     btn.innerHTML=`<span class="ic">${svg(v.icon)}</span><span class="lbl">${v.name}</span><span class="ct"></span>`;
-    btn.onclick=()=>{focusView=false;filter=v.f();starOnly=!!v.star;activeSaved=null;setTitle(v.name);applyAndRender();closeSide();};
+    btn.onclick=()=>{focusView=false;filter=v.f();starOnly=!!v.star;if(v.sort)sortKey=v.sort;activeSaved=null;setTitle(v.name);applyAndRender();closeSide();};
     b.appendChild(btn);
   }
   const ln=$("#listNav");ln.innerHTML="";
@@ -637,7 +646,8 @@ function updateNavCounts(){
     b_today:open.filter(t=>{const d=taskDue(t);return d&&d.getTime()===today.getTime();}).length,
     b_over:open.filter(t=>{const d=taskDue(t);return d&&d<today;}).length,
     b_star:open.filter(t=>t.importance==="high").length,
-    b_none:open.filter(t=>!taskDue(t)).length};
+    b_none:open.filter(t=>!taskDue(t)).length,
+    b_done:TASKS.filter(t=>t.status==="completed").length};
   $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=c[b.dataset.nav]||"");
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
 }
@@ -737,6 +747,7 @@ async function flushOutbox(){
   }
   const stillPending=new Set(outbox.map(o=>o.taskId||o.tempId));
   TASKS.forEach(t=>{if(!stillPending.has(t.id))delete t._pending;});
+  if(!isOffline()&&!outbox.length)markSynced();
   cacheData();updateNetUI();applyAndRender();if(detailTask)fillDetail(detailTask);
 }
 function relTime(ts){const s=(Date.now()-ts)/1000;if(s<90)return"just now";if(s<3600)return Math.round(s/60)+" min ago";if(s<86400)return Math.round(s/3600)+" hr ago";return new Date(ts).toLocaleDateString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}
@@ -746,6 +757,14 @@ function updateNetUI(){
     bar.innerHTML=`${svg(IC.warn)}<span>Offline — showing your tasks${snap?" from "+relTime(snap.savedAt):""}. New changes save here and sync when you reconnect${p?" ("+p+" waiting)":""}.</span>`;}
   else if(p){bar.style.display="flex";bar.className="offlinebar sync";bar.innerHTML=`${svg(IC.repeat)}<span>Syncing ${p} change${p>1?"s":""}…</span>`;}
   else bar.style.display="none";
+  updateSyncHdr();
+}
+function markSynced(){lastSyncAt=Date.now();localStorage.setItem(LS_LASTSYNC,String(lastSyncAt));updateSyncHdr();}
+function updateSyncHdr(){
+  const e=$("#syncHdr");if(!e)return;
+  if(isOffline()){e.className="synchdr off";e.innerHTML=`${svg(IC.warn)}Offline${lastSyncAt?" · synced "+relTime(lastSyncAt):""}`;return;}
+  if(outbox.length){e.className="synchdr";e.innerHTML=`${svg(IC.repeat)}Syncing…`;return;}
+  e.className="synchdr";e.innerHTML=lastSyncAt?`${svg(IC.check)}Synced ${relTime(lastSyncAt)}`:"";
 }
 function isFocus(t){return FOCUS.includes(t.id);}
 function focusTasks(){return FOCUS.map(id=>TASKS.find(t=>t.id===id)).filter(Boolean);}
@@ -987,7 +1006,7 @@ function wireUi(){
   $("#clearBtn").onclick=()=>{focusView=false;filter=defaultFilter();tagModeAll=true;starOnly=false;activeSaved=null;setTitle("All open");applyAndRender();};
   $("#saveBtn").onclick=saveCurrent;
   $("#filterBtn").onclick=()=>$("#filterPop").classList.contains("open")?closePop():openPop();
-  $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();renderFilterControls();applyAndRender();}catch(e){error(e.message);}b.style.opacity=1;};
+  $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){error(isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
   $("#newListBtn").onclick=newList;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
@@ -1005,6 +1024,7 @@ let toastTimer;function toast(m){const t=$("#toast");t.textContent=m;t.classList
 
 window.addEventListener("online",()=>{offline=false;updateNetUI();flushOutbox();toast("Back online — syncing");});
 window.addEventListener("offline",()=>{offline=true;updateNetUI();});
+setInterval(()=>{try{updateSyncHdr();}catch(e){}},60000);   // keep the "synced X ago" label fresh
 boot();
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script>
