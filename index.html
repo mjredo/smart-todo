@@ -139,6 +139,41 @@
   .fbtn{border:0;background:none;color:var(--muted);padding:6px;border-radius:8px}
   .fbtn:hover:not(:disabled){background:var(--chip);color:var(--accent)}
   .fbtn:disabled{opacity:.28}
+  .fchips{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px}
+  .chip.newf{border-style:dashed;color:var(--muted)}
+  .tval{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600;min-width:56px;text-align:right}
+  .pill.running{background:rgba(37,100,207,.16);color:var(--accent);font-variant-numeric:tabular-nums}
+  .timerchip{gap:6px;color:var(--accent)}
+  .timerchip svg{width:15px;height:15px}
+  .timerchip span{font-variant-numeric:tabular-nums;font-weight:600}
+  .menu{position:fixed;z-index:80;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;min-width:200px;max-width:230px}
+  .menuitem{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:9px 10px;border-radius:8px}
+  .menuitem:hover{background:var(--chip)}
+  .menuitem svg{width:18px;height:18px;color:var(--accent);flex:0 0 auto}
+  .menuitem .mchk{width:18px;flex:0 0 auto}
+  .menuitem .mlbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn2.sm{padding:7px 11px;font-size:12.5px}
+  .summarycard{width:min(620px,96vw)}
+  .sumctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .sumctrl select,.sumctrl input[type=date]{border:1px solid var(--line);background:var(--panel-2);border-radius:9px;padding:8px 10px;outline:none}
+  .sumdates{display:none;align-items:center;gap:6px;color:var(--muted)}
+  .sumtotal{color:var(--muted);font-size:13px;margin-top:2px}
+  .sumtotal b{color:var(--ink);font-size:15px}
+  .sumlist{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+  .sumrow{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:10px}
+  .sumrow:hover{background:var(--chip)}
+  .sumname{width:40%;min-width:130px;display:flex;flex-direction:column}
+  .sumname .st{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sumname .sl{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sumbarwrap{flex:1;height:10px;background:var(--chip);border-radius:999px;overflow:hidden;min-width:40px}
+  .sumbar{height:100%;background:var(--accent);border-radius:999px}
+  .sumdur{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);min-width:64px;text-align:right}
+  .addtimerow{display:flex;gap:10px;flex-wrap:wrap}
+  .tfield{display:flex;flex-direction:column;gap:5px}
+  .tfield label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .tfield .tnum{width:90px}
+  .tfield input{border:1px solid var(--line);background:var(--panel-2);border-radius:9px;padding:9px 10px;outline:none}
+  .tfield input:focus{border-color:var(--accent)}
   .empty{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--muted);text-align:center;padding:60px 20px}
   .empty svg{width:40px;height:40px;opacity:.5}
 
@@ -314,6 +349,9 @@
     </div>
     <h4>Views</h4>
     <div id="builtins"></div>
+    <h4>Focus lists</h4>
+    <div id="focusNav"></div>
+    <button class="addlist" id="newFocusBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New focus list</button>
     <h4>Smart lists</h4>
     <div id="savedLists"></div>
     <div class="synced" id="noSaved">Open <b>Filter</b>, build a query, then <b>Save</b>.</div>
@@ -332,6 +370,7 @@
       <div class="vtitle"><span id="viewTitle">All open</span><span class="vcount" id="count">0</span></div>
       <span class="synchdr" id="syncHdr"></span>
       <div class="spacer"></div>
+      <button class="tool timerchip" id="timerChip" style="display:none" title="Timer running"></button>
       <button class="tool" id="filterBtn">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v7l-4-2v-5z"/></svg>
         <span class="hide-sm">Filter</span><span class="badge-n" id="filterBadge" style="display:none">0</span>
@@ -346,6 +385,7 @@
           <option value="completed">Recently completed</option>
         </select>
       </label>
+      <button class="tool iconly" id="summaryBtn" title="Time summary"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18M8 17V10M13 17V6M18 17v-4"/></svg></button>
       <button class="tool iconly" id="refreshBtn" title="Refresh"><svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button>
     </div>
 
@@ -448,8 +488,12 @@ const TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 let account,LISTS=[],TASKS=[],TAGS=[];
 let filter=defaultFilter(), activeSaved=null, tagModeAll=true, sortKey="due", detailTask=null;
-let cloudOK=false, focusView=false, FOCUS=[];
+let cloudOK=false, focusView=false, activeFocusId=null, FOCUS={version:2,lists:[]};
+let activeTimer=null, _timerInt=null, TIMELOG=[];
 const LS_FOCUS="smarttodo.focus.v1";
+const LS_TIMER="smarttodo.timer.v1";
+const LS_TIMELOG="smarttodo.timelog.v1";
+const CLOUD_TIMELOG="/me/drive/special/approot:/time-log.json:/content";
 const CLOUD_FOCUS="/me/drive/special/approot:/focus.json:/content";
 const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1", LS_LASTSYNC="smarttodo.lastsync.v1";
 let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LASTSYNC)||0;
@@ -478,7 +522,8 @@ const IC={
   plus:'<path d="M12 5v14M5 12h14"/>',
   expand:'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  mappin:'<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+  mappin:'<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  chart:'<path d="M3 3v18h18M8 17V10M13 17V6M18 17v-4"/>'
 };
 const svg=(p,cls)=>`<svg class="icon ${cls||''}" viewBox="0 0 24 24">${p}</svg>`;
 
@@ -519,22 +564,22 @@ async function gfetch(path,opts){
 
 /* ---------------- data ---------------- */
 async function start(){
-  show("loading"); wireUi(); loadOutbox();
+  show("loading"); wireUi(); loadOutbox(); loadTimer();
   try{
-    await loadAll(); await loadSaved(); FOCUS=await loadFocus();
+    await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog();
     offline=false; cacheData(); markSynced();
   }catch(e){
     const snap=loadCache();
     if(snap){                                   // no network → use the last saved snapshot
       LISTS=snap.lists; TASKS=snap.tasks; rebuildTags();
-      window._saved=readLS(); FOCUS=readFocusLS(); offline=true;
+      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); offline=true;
     }else{                                       // never synced on this device yet
       show("app"); error("Can't reach Microsoft, and no offline copy is saved yet. Connect once to load your tasks."); return;
     }
   }
   outbox.forEach(applyOpLocal);                  // re-apply any unsynced local changes on top
   renderNav(); renderFilterControls(); applyAndRender();
-  show("app"); updateNetUI();
+  show("app"); updateNetUI(); updateTimerUI(); if(activeTimer)ensureTimerTick();
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
@@ -628,6 +673,7 @@ function renderTasks(rows){
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
     const meta=el("div","tmeta");
     if(t._pending)meta.appendChild(pill("not synced yet",null,IC.repeat));
+    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(pill(fmtDur(elapsedMs()),"running",IC.clock));
     if(!filter.lists.length||filter.lists.length>1) meta.appendChild(pill(t._listName,"list"));
     const d=taskDue(t);
     if(d){const over=d<today,tod=d.getTime()===today.getTime();meta.appendChild(pill(fmtDate(d),over?"due-over":(tod?"due-today":""),IC.cal));}
@@ -639,8 +685,8 @@ function renderTasks(rows){
     if(meta.children.length)body.appendChild(meta);
     const star=el("button","star"+(t.importance==="high"?" on":""));star.innerHTML=svg(IC.star,t.importance==="high"?"fill":"");
     star.title="Star";star.onclick=e=>{e.stopPropagation();toggleStar(t);};
-    const pin=el("button","pinbtn"+(isFocus(t)?" on":""));pin.innerHTML=svg(IC.pin,isFocus(t)?"fill":"");
-    pin.title=isFocus(t)?"In Focus":"Add to Focus";pin.onclick=e=>{e.stopPropagation();toggleFocus(t);};
+    const pin=el("button","pinbtn"+(anyFocus(t)?" on":""));pin.innerHTML=svg(IC.pin,anyFocus(t)?"fill":"");
+    pin.title="Add to a focus list";pin.onclick=e=>{e.stopPropagation();openFocusMenu(pin,t);};
     row.appendChild(ck);row.appendChild(body);row.appendChild(star);row.appendChild(pin);
     row.onclick=()=>openDetail(t);
     box.appendChild(row);
@@ -670,9 +716,6 @@ const BUILTINS=[
 let starOnly=false;
 function renderNav(){
   const b=$("#builtins");b.innerHTML="";
-  const fb=el("button","navbtn");fb.dataset.nav="focus";
-  fb.innerHTML=`<span class="ic">${svg(IC.focus)}</span><span class="lbl">Focus</span><span class="ct"></span>`;
-  fb.onclick=enterFocus;b.appendChild(fb);
   for(const v of BUILTINS){
     const btn=el("button","navbtn");btn.dataset.nav=v.id;
     btn.innerHTML=`<span class="ic">${svg(v.icon)}</span><span class="lbl">${v.name}</span><span class="ct"></span>`;
@@ -690,6 +733,7 @@ function renderNav(){
     x.onclick=e=>{e.stopPropagation();listMenu(L);};
     rowd.appendChild(btn);rowd.appendChild(x);ln.appendChild(rowd);
   }
+  renderFocusNav();
   updateNavCounts();
 }
 function passesStar(t){return !starOnly||t.importance==="high";}
@@ -703,6 +747,7 @@ function updateNavCounts(){
     b_done:TASKS.filter(t=>t.status==="completed").length};
   $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=c[b.dataset.nav]||"");
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
+  updateFocusCounts();
 }
 function reflectActiveNav(){$$(".navbtn").forEach(b=>b.classList.remove("active"));if(activeSaved){const s=$(`[data-saved="${activeSaved}"]`);if(s)s.classList.add("active");}}
 
@@ -754,17 +799,24 @@ function cycleList(id){                          // none → include → exclude
   activeSaved=null;applyAndRender();
 }
 
-/* ---------------- Focus list (local, ordered, NOT synced) ---------------- */
-function readFocusLS(){try{return JSON.parse(localStorage.getItem(LS_FOCUS)||"[]");}catch{return[];}}
+/* ---------------- Focus lists (multiple, named, ordered; synced via OneDrive, NOT To Do) ---------------- */
+function normalizeFocus(raw){
+  if(Array.isArray(raw))return{version:2,lists:raw.length?[{id:"f_default",name:"Focus",taskIds:raw.slice()}]:[]};   // migrate old single-list shape
+  if(raw&&Array.isArray(raw.lists))return{version:2,lists:raw.lists.map(l=>({id:l.id,name:l.name,taskIds:Array.isArray(l.taskIds)?l.taskIds.slice():[]}))};
+  return{version:2,lists:[]};
+}
+function readFocusLS(){try{return normalizeFocus(JSON.parse(localStorage.getItem(LS_FOCUS)||"null"));}catch{return{version:2,lists:[]};}}
 async function loadFocus(){
-  // Syncs across devices via the private OneDrive app folder (never touches To Do).
-  try{const j=await gfetch(CLOUD_FOCUS);const arr=Array.isArray(j)?j:(j&&j.value)||[];localStorage.setItem(LS_FOCUS,JSON.stringify(arr));return arr;}
-  catch(e){return readFocusLS();}   // 404 (no file yet) or offline → use local cache
+  try{const j=await gfetch(CLOUD_FOCUS);const f=normalizeFocus(j);localStorage.setItem(LS_FOCUS,JSON.stringify(f));return f;}
+  catch(e){return readFocusLS();}   // 404 (no file yet) or offline → local cache
 }
 function saveFocus(){
-  localStorage.setItem(LS_FOCUS,JSON.stringify(FOCUS));           // instant local cache
-  if(cloudOK)gfetch(CLOUD_FOCUS,{method:"PUT",body:JSON.stringify(FOCUS)}).catch(()=>{});  // background sync
+  localStorage.setItem(LS_FOCUS,JSON.stringify(FOCUS));
+  if(cloudOK)gfetch(CLOUD_FOCUS,{method:"PUT",body:JSON.stringify(FOCUS)}).catch(()=>{});
 }
+function focusById(id){return FOCUS.lists.find(l=>l.id===id);}
+function inFocus(t,id){const l=focusById(id);return !!l&&l.taskIds.includes(t.id);}
+function anyFocus(t){return FOCUS.lists.some(l=>l.taskIds.includes(t.id));}
 
 /* ---------------- offline: data cache + write outbox ---------------- */
 function isOffline(){return !navigator.onLine;}
@@ -839,52 +891,232 @@ function updateSyncHdr(){
   if(outbox.length){e.className="synchdr";e.innerHTML=`${svg(IC.repeat)}Syncing…`;return;}
   e.className="synchdr";e.innerHTML=lastSyncAt?`${svg(IC.check)}Synced ${relTime(lastSyncAt)}`:"";
 }
-function isFocus(t){return FOCUS.includes(t.id);}
-function focusTasks(){return FOCUS.map(id=>TASKS.find(t=>t.id===id)).filter(Boolean);}
-function toggleFocus(t){
-  const i=FOCUS.indexOf(t.id);
-  if(i<0)FOCUS.push(t.id);else FOCUS.splice(i,1);
-  saveFocus();updateNavCounts();
-  if(focusView)renderFocusView();else applyAndRender();
-  toast(i<0?"Added to Focus":"Removed from Focus");
+function focusListTasks(id){const l=focusById(id);return l?l.taskIds.map(tid=>TASKS.find(t=>t.id===tid)).filter(Boolean):[];}
+function toggleFocusMember(t,id){
+  const l=focusById(id);if(!l)return;
+  const i=l.taskIds.indexOf(t.id);
+  if(i<0)l.taskIds.push(t.id);else l.taskIds.splice(i,1);
+  saveFocus();renderFocusNav();updateNavCounts();
+  if(focusView&&activeFocusId===id)renderFocusView();else applyAndRender();
+  toast(i<0?"Added to “"+l.name+"”":"Removed from “"+l.name+"”");
 }
-function moveFocus(id,dir){
-  const i=FOCUS.indexOf(id),j=i+dir;
-  if(i<0||j<0||j>=FOCUS.length)return;
-  [FOCUS[i],FOCUS[j]]=[FOCUS[j],FOCUS[i]];saveFocus();renderFocusView();
+function newFocusList(name,addTaskId){
+  const id="fl_"+Date.now().toString(36)+"_"+Math.floor(Math.random()*1e4);
+  const l={id,name:name||"Focus",taskIds:addTaskId?[addTaskId]:[]};
+  FOCUS.lists.push(l);saveFocus();renderFocusNav();updateNavCounts();return l;
 }
-function enterFocus(){focusView=true;starOnly=false;activeSaved=null;setTitle("Focus");closePop();renderFocusView();closeSide();}
+function renameFocusList(id,name){const l=focusById(id);if(l){l.name=name;saveFocus();renderFocusNav();if(activeFocusId===id)setTitle(name);}}
+function deleteFocusList(id){
+  FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();renderFocusNav();updateNavCounts();
+  if(activeFocusId===id){focusView=false;activeFocusId=null;filter=defaultFilter();starOnly=false;setTitle("All open");applyAndRender();}
+}
+function moveInFocus(id,taskId,dir){const l=focusById(id);if(!l)return;const a=l.taskIds,i=a.indexOf(taskId),j=i+dir;if(i<0||j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];saveFocus();renderFocusView();}
+function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();closeSide();}
+
+function renderFocusNav(){
+  const box=$("#focusNav");if(!box)return;box.innerHTML="";
+  if(!FOCUS.lists.length){box.innerHTML='<div class="synced" style="padding:2px 10px">None yet — create one, then pin tasks to it.</div>';return;}
+  for(const l of FOCUS.lists){
+    const rowd=el("div","listrow");
+    const btn=el("button","navbtn");btn.dataset.focus=l.id;
+    btn.innerHTML=`<span class="ic">${svg(IC.focus)}</span><span class="lbl"></span><span class="ct"></span>`;
+    btn.querySelector(".lbl").textContent=l.name;
+    btn.onclick=()=>enterFocus(l.id);
+    const x=el("button","row-x");x.innerHTML=svg(IC.x);x.title="Rename / delete";
+    x.onclick=e=>{e.stopPropagation();focusListMenu(l);};
+    rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
+  }
+  updateFocusCounts();
+}
+function updateFocusCounts(){
+  $$("#focusNav .navbtn").forEach(b=>{const l=focusById(b.dataset.focus);const n=l?l.taskIds.filter(id=>TASKS.find(t=>t.id===id)).length:0;b.querySelector(".ct").textContent=n||"";});
+}
+function focusListMenu(l){
+  const name=prompt(`Rename focus list, or type "delete" to remove it (your tasks are NOT deleted):`,l.name);
+  if(name===null)return;
+  if(name.trim().toLowerCase()==="delete"){if(confirm(`Delete focus list “${l.name}”?`))deleteFocusList(l.id);return;}
+  if(name.trim()&&name.trim()!==l.name)renameFocusList(l.id,name.trim());
+}
 function renderFocusView(){
   $$(".navbtn").forEach(b=>b.classList.remove("active"));
-  const fb=$('[data-nav="focus"]');if(fb)fb.classList.add("active");
+  const fb=$(`[data-focus="${activeFocusId}"]`);if(fb)fb.classList.add("active");
   $("#filterBadge").style.display="none";
-  const rows=focusTasks();
+  const l=focusById(activeFocusId);
+  const rows=focusListTasks(activeFocusId);
   $("#count").textContent=rows.length;
   const box=$("#taskList");box.innerHTML="";
   if(!rows.length){
-    box.innerHTML=`<div class="empty">${svg(IC.focus)}<div>Your Focus list is empty.</div>
-      <div style="font-size:12.5px;max-width:340px">Pin any task with the ${svg(IC.pin)} button, or open a task and choose <b>Add to Focus</b>. Focus is a private working list — it syncs across your devices via your OneDrive and never changes your real To Do lists.</div></div>`;
+    box.innerHTML=`<div class="empty">${svg(IC.focus)}<div>“${l?escHtml(l.name):"Focus"}” is empty.</div>
+      <div style="font-size:12.5px;max-width:360px">Pin a task with the ${svg(IC.pin)} button and choose this list, or open a task and tap it under <b>Focus lists</b>. Focus lists are private working lists — synced across your devices, never changing your real To Do lists.</div></div>`;
     updateNavCounts();return;
   }
   const today=startOfToday();
   rows.forEach((t,idx)=>{
-    const row=el("div","task"+(t.status==="completed"?" done":""));
+    const row=el("div","task"+(t.status==="completed"?" done":"")+(t._pending?" _pend":""));
     const ck=el("button","ck");ck.innerHTML=svg(IC.check);ck.onclick=e=>{e.stopPropagation();toggleDone(t);};
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
-    const meta=el("div","tmeta");meta.appendChild(pill(t._listName,"list"));
+    const meta=el("div","tmeta");
+    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(pill(fmtDur(elapsedMs()),"running",IC.clock));
+    meta.appendChild(pill(t._listName,"list"));
     const d=taskDue(t);if(d){const over=d<today,tod=d.getTime()===today.getTime();meta.appendChild(pill(fmtDate(d),over?"due-over":(tod?"due-today":""),IC.cal));}
     body.appendChild(meta);
     const ctrl=el("div","freorder");
-    const up=el("button","fbtn");up.innerHTML=svg(IC.up);up.disabled=idx===0;up.title="Move up";up.onclick=e=>{e.stopPropagation();moveFocus(t.id,-1);};
-    const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";dn.onclick=e=>{e.stopPropagation();moveFocus(t.id,1);};
-    const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Remove from Focus";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();toggleFocus(t);};
+    const up=el("button","fbtn");up.innerHTML=svg(IC.up);up.disabled=idx===0;up.title="Move up";up.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,-1);};
+    const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";dn.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,1);};
+    const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Remove from this list";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();toggleFocusMember(t,activeFocusId);};
     ctrl.appendChild(up);ctrl.appendChild(dn);ctrl.appendChild(rm);
     row.appendChild(ck);row.appendChild(body);row.appendChild(ctrl);
     row.onclick=()=>openDetail(t);
     box.appendChild(row);
   });
   updateNavCounts();
+}
+
+/* pin → choose which focus list(s) */
+function openFocusMenu(anchor,t){
+  closeMenu();
+  const m=el("div","menu");
+  FOCUS.lists.forEach(l=>{
+    const b=el("button","menuitem");
+    b.innerHTML=(inFocus(t,l.id)?svg(IC.check):'<span class="mchk"></span>')+'<span class="mlbl"></span>';
+    b.querySelector(".mlbl").textContent=l.name;
+    b.onclick=e=>{e.stopPropagation();toggleFocusMember(t,l.id);closeMenu();};
+    m.appendChild(b);
+  });
+  const nb=el("button","menuitem");nb.innerHTML='<span class="mchk"></span><span class="mlbl">＋ New focus list…</span>';
+  nb.onclick=e=>{e.stopPropagation();closeMenu();const n=prompt("New focus list name:","Morning");if(n&&n.trim())newFocusList(n.trim(),t.id);};
+  m.appendChild(nb);
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect(),w=230;
+  m.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+"px";
+  m.style.top=(r.bottom+6)+"px";
+  const mh=m.getBoundingClientRect().height;
+  if(r.bottom+6+mh>window.innerHeight)m.style.top=Math.max(8,r.top-mh-6)+"px";
+  setTimeout(()=>document.addEventListener("mousedown",closeMenuOutside),0);
+}
+function closeMenuOutside(e){const m=$(".menu");if(m&&!m.contains(e.target))closeMenu();}
+function closeMenu(){const m=$(".menu");if(m)m.remove();document.removeEventListener("mousedown",closeMenuOutside);}
+
+/* ---------------- task timer ---------------- */
+function loadTimer(){try{activeTimer=JSON.parse(localStorage.getItem(LS_TIMER)||"null");}catch{activeTimer=null;}}
+function saveTimerState(){if(activeTimer)localStorage.setItem(LS_TIMER,JSON.stringify(activeTimer));else localStorage.removeItem(LS_TIMER);}
+function elapsedMs(){return activeTimer?Date.now()-activeTimer.startedAt:0;}
+function fmtDur(ms){const s=Math.max(0,Math.round(ms/1000)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h?h+"h "+m+"m":(m?(ss?m+"m "+ss+"s":m+"m"):ss+"s");}
+function fmtClock(ms){const s=Math.max(0,Math.floor(ms/1000)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60,p=n=>String(n).padStart(2,"0");return (h?h+":":"")+p(m)+":"+p(ss);}
+function startTimer(t){
+  if(activeTimer){if(activeTimer.taskId===t.id)return;stopTimer(true);}   // one timer at a time; stopping logs the previous
+  activeTimer={taskId:t.id,startedAt:Date.now()};saveTimerState();
+  updateTimerUI();ensureTimerTick();applyAndRender();if(detailTask===t)fillDetail(t);
+  toast("Timer started");
+}
+function stopTimer(log){
+  if(!activeTimer)return null;
+  const id=activeTimer.taskId,startMs=activeTimer.startedAt,endMs=Date.now(),ms=endMs-startMs;
+  const started=new Date(startMs),ended=new Date(endMs);
+  const t=TASKS.find(x=>x.id===id);
+  activeTimer=null;saveTimerState();updateTimerUI();
+  if(ms>=1000)logTime(id,t?t.title:"",t?t._listName:"",startMs,endMs,false);   // structured log for summaries
+  if(log&&t&&ms>=1000){
+    const range=started.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+"–"+ended.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+    prependNote(t,"⏱ "+fmtDur(ms)+"  ("+range+")");   // logs to notes + re-renders
+    toast("Logged "+fmtDur(ms));
+  }else{applyAndRender();if(detailTask&&detailTask.id===id)fillDetail(detailTask);}
+  return ms;
+}
+function ensureTimerTick(){if(_timerInt)return;_timerInt=setInterval(()=>{if(!activeTimer){clearInterval(_timerInt);_timerInt=null;return;}updateTimerUI();const v=$("#detailTimerVal");if(v)v.textContent=fmtClock(elapsedMs());},1000);}
+function updateTimerUI(){
+  const chip=$("#timerChip");if(!chip)return;
+  if(activeTimer){const t=TASKS.find(x=>x.id===activeTimer.taskId);chip.style.display="inline-flex";
+    chip.innerHTML=`${svg(IC.clock)}<span>${fmtClock(elapsedMs())}</span>`;chip.title=(t?t.title+" — ":"")+"tap to open";}
+  else chip.style.display="none";
+}
+
+/* ---------------- time log (structured, synced) + summaries ---------------- */
+function readTimelogLS(){try{const a=JSON.parse(localStorage.getItem(LS_TIMELOG)||"[]");return Array.isArray(a)?a:[];}catch{return[];}}
+async function loadTimelog(){try{const j=await gfetch(CLOUD_TIMELOG);const a=Array.isArray(j)?j:(j&&j.value)||[];localStorage.setItem(LS_TIMELOG,JSON.stringify(a));return a;}catch(e){return readTimelogLS();}}
+function saveTimelog(){localStorage.setItem(LS_TIMELOG,JSON.stringify(TIMELOG));if(cloudOK)gfetch(CLOUD_TIMELOG,{method:"PUT",body:JSON.stringify(TIMELOG)}).catch(()=>{});}
+function logTime(taskId,title,listName,start,end,manual){
+  TIMELOG.push({id:"tl_"+Date.now().toString(36)+"_"+Math.floor(Math.random()*1e4),taskId,title,listName,start,end,ms:Math.max(0,end-start),manual:!!manual});
+  saveTimelog();
+}
+function dayStart(d){const x=new Date(d);x.setHours(0,0,0,0);return x.getTime();}
+function dayEnd(d){const x=new Date(d);x.setHours(23,59,59,999);return x.getTime();}
+function summarize(fromMs,toMs,sortKey){
+  const by={};
+  for(const r of TIMELOG){const when=r.end||r.start;if(when<fromMs||when>toMs)continue;
+    const k=r.taskId||("t:"+r.title)||r.id;
+    if(!by[k])by[k]={taskId:r.taskId,title:r.title,listName:r.listName,ms:0,count:0};
+    by[k].ms+=r.ms||0;by[k].count++;if(r.title)by[k].title=r.title;if(r.listName)by[k].listName=r.listName;
+  }
+  const rows=Object.values(by);
+  rows.forEach(x=>{const t=TASKS.find(t=>t.id===x.taskId);if(t){x.title=t.title;x.listName=t._listName;}});
+  const S={dur_desc:(a,b)=>b.ms-a.ms,dur_asc:(a,b)=>a.ms-b.ms,name:(a,b)=>(a.title||"").localeCompare(b.title||""),list:(a,b)=>(a.listName||"").localeCompare(b.listName||"")||b.ms-a.ms};
+  rows.sort(S[sortKey]||S.dur_desc);
+  return {rows,total:rows.reduce((s,x)=>s+x.ms,0)};
+}
+function openSummary(){
+  showModal((card,close)=>{
+    card.classList.add("summarycard");
+    card.innerHTML=`<div class="mtitle">Time summary</div>`;
+    const ctrl=el("div","sumctrl");
+    const winSel=el("select");[["today","Today"],["yesterday","Yesterday"],["last7","Last 7 days"],["month","This month"],["custom","Custom…"]].forEach(([v,l])=>{const o=el("option",null,l);o.value=v;winSel.appendChild(o);});
+    const fromI=el("input");fromI.type="date";fromI.value=todayISO();
+    const toI=el("input");toI.type="date";toI.value=todayISO();
+    const dwrap=el("span","sumdates");dwrap.append(fromI,document.createTextNode("–"),toI);
+    const sortSel=el("select");[["dur_desc","Longest first"],["dur_asc","Shortest first"],["name","Name A–Z"],["list","By list"]].forEach(([v,l])=>{const o=el("option",null,l);o.value=v;sortSel.appendChild(o);});
+    ctrl.append(winSel,dwrap,sortSel);card.appendChild(ctrl);
+    const totalEl=el("div","sumtotal");card.appendChild(totalEl);
+    const listEl=el("div","sumlist");card.appendChild(listEl);
+    function render(){
+      const now=Date.now(),w=winSel.value;let from,to;
+      if(w==="today"){from=dayStart(now);to=dayEnd(now);}
+      else if(w==="yesterday"){const y=now-864e5;from=dayStart(y);to=dayEnd(y);}
+      else if(w==="last7"){from=dayStart(now-6*864e5);to=dayEnd(now);}
+      else if(w==="month"){const d=new Date();d.setDate(1);from=dayStart(d);to=dayEnd(now);}
+      else{from=dayStart(parseYMD(fromI.value)||new Date());to=dayEnd(parseYMD(toI.value)||new Date());}
+      dwrap.style.display=w==="custom"?"inline-flex":"none";
+      const {rows,total}=summarize(from,to,sortSel.value);
+      totalEl.innerHTML=`Total tracked: <b>${fmtDur(total)||"0m"}</b> · ${rows.length} task${rows.length===1?"":"s"}`;
+      listEl.innerHTML="";
+      if(!rows.length){listEl.innerHTML='<div class="empty" style="padding:26px">No time tracked in this range.</div>';return;}
+      const max=Math.max.apply(null,rows.map(r=>r.ms).concat(1));
+      rows.forEach(r=>{
+        const row=el("div","sumrow");
+        row.innerHTML=`<div class="sumname"><span class="st"></span><span class="sl"></span></div><div class="sumbarwrap"><div class="sumbar" style="width:${Math.round(r.ms/max*100)}%"></div></div><div class="sumdur">${fmtDur(r.ms)}</div>`;
+        row.querySelector(".st").textContent=r.title||"(untitled)";
+        row.querySelector(".sl").textContent=r.listName||"";
+        const t=TASKS.find(x=>x.id===r.taskId);if(t){row.style.cursor="pointer";row.onclick=()=>{close();openDetail(t);};}
+        listEl.appendChild(row);
+      });
+    }
+    winSel.onchange=render;sortSel.onchange=render;fromI.onchange=render;toI.onchange=render;
+    const foot=el("div","mfoot");const cls=el("button","btn2","Close");cls.onclick=close;foot.appendChild(cls);card.appendChild(foot);
+    render();
+  });
+}
+function openAddTime(t){
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Add time</div><div class="msub">${svg(IC.clock)}<span class="mst"></span></div>`;
+    card.querySelector(".mst").textContent=t.title||"";
+    const row=el("div","addtimerow");
+    const mkf=(lbl,input)=>{const w=el("div","tfield");const l=el("label",null,lbl);w.append(l,input);return w;};
+    const h=el("input");h.type="number";h.min=0;h.placeholder="0";h.className="tnum";
+    const m=el("input");m.type="number";m.min=0;m.max=59;m.placeholder="0";m.className="tnum";
+    const date=el("input");date.type="date";date.value=todayISO();
+    row.append(mkf("Hours",h),mkf("Minutes",m),mkf("Date",date));card.appendChild(row);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const save=el("button","btn2 primary","Add time");
+    save.onclick=()=>{const ms=((+h.value||0)*60+(+m.value||0))*60000;if(ms<=0){close();return;}
+      const isToday=date.value===todayISO();const d=parseYMD(date.value)||new Date();
+      const end=isToday?Date.now():(d.getTime()+12*3600*1000);
+      logTime(t.id,t.title,t._listName,end-ms,end,true);
+      prependNote(t,"⏱ "+fmtDur(ms)+" (added"+(isToday?"":", "+d.toLocaleDateString(undefined,{month:"short",day:"numeric"}))+")");
+      toast("Added "+fmtDur(ms));close();};
+    foot.append(cancel,save);card.appendChild(foot);
+    setTimeout(()=>h.focus(),60);
+  });
 }
 
 /* ---------------- saved smart lists (OneDrive-synced) ---------------- */
@@ -934,7 +1166,9 @@ function suggestName(){
 /* ---------------- task writes ---------------- */
 /* patch/complete/star/add all flow through the outbox: optimistic locally, synced now if online, queued if not */
 function patchTask(t,body){queueOp({type:"patch",listId:t._listId,taskId:t.id,body});applyAndRender();if(detailTask===t)fillDetail(t);}
-function toggleDone(t){const to=t.status==="completed"?"notStarted":"completed";patchTask(t,{status:to});toast(to==="completed"?"Completed ✓":"Reopened");}
+function toggleDone(t){const to=t.status==="completed"?"notStarted":"completed";
+  if(to==="completed"&&activeTimer&&activeTimer.taskId===t.id)stopTimer(true);   // completing stops & logs the timer
+  patchTask(t,{status:to});toast(to==="completed"?"Completed ✓":"Reopened");}
 function toggleStar(t){patchTask(t,{importance:t.importance==="high"?"normal":"high"});}
 function addTask(){
   const raw=$("#addText").value.trim();if(!raw){$("#addText").focus();return;}
@@ -1002,12 +1236,28 @@ function fillDetail(t){
   head.appendChild(ck);head.appendChild(ta);head.appendChild(starB);b.appendChild(head);
   setTimeout(()=>{ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";},0);
 
-  // Focus toggle
+  // Focus lists
   const fSec=el("div","dsection");
-  const fRow=el("button","drow");
-  fRow.innerHTML=`<span class="ic" style="color:${isFocus(t)?'var(--accent)':''}">${svg(IC.pin,isFocus(t)?'fill':'')}</span><div class="rlabel">${isFocus(t)?"In Focus — tap to remove":"Add to Focus"}<small>Private working list · syncs across your devices, separate from To Do</small></div>`;
-  fRow.onclick=()=>{toggleFocus(t);fillDetail(t);};
-  fSec.appendChild(fRow);b.appendChild(fSec);
+  const fRow=el("div","drow");
+  fRow.innerHTML=`<span class="ic">${svg(IC.focus)}</span><div class="rlabel">Focus lists<small>Private working lists · synced, separate from To Do</small></div>`;
+  fSec.appendChild(fRow);
+  const fchips=el("div","fchips");
+  FOCUS.lists.forEach(l=>{const c=el("button","chip"+(inFocus(t,l.id)?" on":""));c.textContent=l.name;c.onclick=()=>{toggleFocusMember(t,l.id);fillDetail(t);};fchips.appendChild(c);});
+  const nc=el("button","chip newf");nc.textContent="＋ New";nc.onclick=()=>{const n=prompt("New focus list name:","Morning");if(n&&n.trim()){newFocusList(n.trim(),t.id);fillDetail(t);}};
+  fchips.appendChild(nc);
+  fSec.appendChild(fchips);b.appendChild(fSec);
+
+  // Timer
+  const running=activeTimer&&activeTimer.taskId===t.id;
+  const tSec=el("div","dsection");
+  const tRow=el("div","drow");
+  tRow.innerHTML=`<span class="ic">${svg(IC.clock)}</span><div class="rlabel">Time tracking<small>Logs elapsed time into notes when stopped or completed</small></div>`;
+  const tval=el("span","tval");tval.id="detailTimerVal";tval.textContent=running?fmtClock(elapsedMs()):"";
+  const addT=el("button","btn2 sm");addT.textContent="＋ Add time";addT.title="Log time manually";addT.onclick=()=>openAddTime(t);
+  const tbtn=el("button","btn2"+(running?"":" primary"));tbtn.textContent=running?"Stop":"Start timer";
+  tbtn.onclick=()=>{running?stopTimer(true):startTimer(t);};
+  tRow.appendChild(tval);tRow.appendChild(addT);tRow.appendChild(tbtn);
+  tSec.appendChild(tRow);b.appendChild(tSec);
 
   // steps
   const sSec=el("div","dsection");const sWrap=el("div","steps");
@@ -1172,11 +1422,14 @@ function wireUi(){
   $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){error(isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
   $("#newListBtn").onclick=newList;
+  $("#newFocusBtn").onclick=()=>{const n=prompt("New focus list name:","Morning");if(n&&n.trim())enterFocus(newFocusList(n.trim()).id);};
+  $("#timerChip").onclick=()=>{if(activeTimer){const t=TASKS.find(x=>x.id===activeTimer.taskId);if(t)openDetail(t);}};
+  $("#summaryBtn").onclick=openSummary;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
   $("#menuBtn").onclick=openSide;
   $("#signOutBtn").onclick=()=>IS_MOBILE?window.msalApp.logoutRedirect():window.msalApp.logoutPopup();
-  $("#scrim").onclick=()=>{closePop();closeDetail();closeSide();};
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"){const m=document.querySelector(".modal");if(m){closeModal(m);return;}closePop();closeDetail();closeSide();}});
+  $("#scrim").onclick=()=>{closePop();closeDetail();closeSide();closeMenu();};
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMenu();const m=document.querySelector(".modal");if(m){closeModal(m);return;}closePop();closeDetail();closeSide();}});
 }
 function setTitle(t){$("#viewTitle").textContent=t;}
 
