@@ -229,6 +229,10 @@
   .chip{border:1px solid var(--line);background:var(--chip);padding:6px 12px;border-radius:999px;font-size:13px;transition:.12s}
   .chip:hover{border-color:var(--accent)}
   .chip.on{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
+  .chip.ex{background:rgba(214,59,59,.14);color:var(--red);border-color:rgba(214,59,59,.45);text-decoration:line-through}
+  .taghint{font-size:11px;color:var(--muted);margin-top:7px}
+  .taghint b{color:var(--accent);font-weight:600}
+  .taghint s{color:var(--red)}
   .pop select,.pop input[type=search],.pop input[type=date]{width:100%;border:1px solid var(--line);
        background:var(--panel-2);border-radius:10px;padding:9px 11px;outline:none}
   .pop select:focus,.pop input:focus{border-color:var(--accent)}
@@ -383,6 +387,7 @@
   <div class="fgroup">
     <label>Lists</label>
     <div class="chips" id="fLists"></div>
+    <div class="taghint">Tap a list: <b>include</b> → <s>exclude</s> → clear</div>
   </div>
   <div class="fgroup">
     <label>Due</label>
@@ -410,6 +415,7 @@
   <div class="fgroup">
     <label>Hashtags · <span class="tagmode" id="tagMode">match all</span></label>
     <div class="chips" id="fTags"></div>
+    <div class="taghint">Tap a tag: <b>include</b> → <s>exclude</s> → clear</div>
   </div>
   <div class="fgroup">
     <label>Status</label>
@@ -450,7 +456,7 @@ let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LAST
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
-function defaultFilter(){return{lists:[],due:"any",dateA:"",dateB:"",status:"open",text:"",tags:[]};}
+function defaultFilter(){return{lists:[],exLists:[],due:"any",dateA:"",dateB:"",status:"open",text:"",tags:[],exTags:[]};}
 
 const IC={
   open:'<path d="M9 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-4M9 11V7a3 3 0 0 1 6 0v4M9 11h6"/>',
@@ -562,6 +568,7 @@ function matches(t){
   if(filter.status==="open"&&done)return false;
   if(filter.status==="completed"&&!done)return false;
   if(filter.lists.length&&!filter.lists.includes(t._listId))return false;
+  if(filter.exLists&&filter.exLists.includes(t._listId))return false;   // NOT: hide tasks in an excluded list
   if(filter.due!=="any"){
     const d=taskDue(t),today=startOfToday();
     if(filter.due==="none"){if(d)return false;}
@@ -580,7 +587,11 @@ function matches(t){
       if(filter.due==="next7"&&(d<today||d>week))return false;
     }
   }
-  if(filter.tags.length){const tt=parseTags(t.title||"");const has=filter.tags.map(x=>tt.includes(x));if(tagModeAll?has.some(v=>!v):!has.some(v=>v))return false;}
+  if(filter.tags.length||( filter.exTags&&filter.exTags.length)){
+    const tt=parseTags(t.title||"");
+    if(filter.tags.length){const has=filter.tags.map(x=>tt.includes(x));if(tagModeAll?has.some(v=>!v):!has.some(v=>v))return false;}
+    if(filter.exTags&&filter.exTags.some(x=>tt.includes(x)))return false;   // NOT: hide tasks carrying an excluded tag
+  }
   if(filter.text&&!(t.title||"").toLowerCase().includes(filter.text.toLowerCase()))return false;
   if(!passesStar(t))return false;
   return true;
@@ -593,7 +604,7 @@ const SORTS={
   completed:(a,b)=>(compTime(b)-compTime(a))||SORTS.due(a,b)
 };
 function compTime(t){const c=t.completedDateTime&&t.completedDateTime.dateTime;return c?Date.parse(c):0;}
-function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
+function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.exLists&&filter.exLists.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.exTags&&filter.exTags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
 function applyAndRender(){
   if(focusView){renderFocusView();return;}
   const rows=TASKS.filter(matches).sort(SORTS[sortKey]||SORTS.due);
@@ -698,20 +709,24 @@ function reflectActiveNav(){$$(".navbtn").forEach(b=>b.classList.remove("active"
 /* ---------------- filter controls (pop-out) ---------------- */
 function renderFilterControls(){
   const fl=$("#fLists");fl.innerHTML="";
-  for(const L of LISTS){const c=el("button","chip",L.displayName);c.dataset.list=L.id;c.onclick=()=>{toggleArr(filter.lists,L.id);activeSaved=null;applyAndRender();};fl.appendChild(c);}
+  for(const L of LISTS){const c=el("button","chip",L.displayName);c.dataset.list=L.id;c.dataset.name=L.displayName;c.onclick=()=>cycleList(L.id);fl.appendChild(c);}
   renderTagChips();
   const sel=$("#addList");sel.innerHTML="";for(const L of LISTS){const o=el("option",null,L.displayName);o.value=L.id;sel.appendChild(o);}
 }
 function renderTagChips(){
   const ft=$("#fTags");ft.innerHTML="";
   if(!TAGS.length){ft.innerHTML='<span style="color:var(--muted);font-size:12.5px">No #hashtags in your task titles yet.</span>';return;}
-  for(const tg of TAGS){const c=el("button","chip","#"+tg);c.dataset.tag=tg;c.onclick=()=>{toggleArr(filter.tags,tg);activeSaved=null;applyAndRender();};ft.appendChild(c);}
+  for(const tg of TAGS){const c=el("button","chip","#"+tg);c.dataset.tag=tg;c.onclick=()=>cycleTag(tg);ft.appendChild(c);}
 }
 function syncControls(){
   $("#fDue").value=filter.due;$("#fStatus").value=filter.status;$("#fText").value=filter.text;$("#sortBy").value=sortKey;
   updateDateInputs();
-  $$("#fLists .chip").forEach(c=>c.classList.toggle("on",filter.lists.includes(c.dataset.list)));
-  $$("#fTags .chip").forEach(c=>c.classList.toggle("on",filter.tags.includes(c.dataset.tag)));
+  const exL=filter.exLists||[];
+  $$("#fLists .chip").forEach(c=>{const id=c.dataset.list,inc=filter.lists.includes(id),exc=exL.includes(id);
+    c.classList.toggle("on",inc);c.classList.toggle("ex",exc);c.textContent=(exc?"−":"")+c.dataset.name;});
+  const ex=filter.exTags||[];
+  $$("#fTags .chip").forEach(c=>{const tg=c.dataset.tag,inc=filter.tags.includes(tg),exc=ex.includes(tg);
+    c.classList.toggle("on",inc);c.classList.toggle("ex",exc);c.textContent=(exc?"−":"")+"#"+tg;});
   $("#tagMode").textContent=tagModeAll?"match all":"match any";
 }
 function updateDateInputs(){
@@ -722,6 +737,22 @@ function updateDateInputs(){
   a.value=filter.dateA||"";b.value=filter.dateB||"";
 }
 function toggleArr(a,v){const i=a.indexOf(v);i<0?a.push(v):a.splice(i,1);}
+function cycleTag(tg){                          // none → include → exclude → none
+  filter.exTags=filter.exTags||[];
+  const i=filter.tags.indexOf(tg), e=filter.exTags.indexOf(tg);
+  if(i>=0){filter.tags.splice(i,1);filter.exTags.push(tg);}
+  else if(e>=0){filter.exTags.splice(e,1);}
+  else{filter.tags.push(tg);}
+  activeSaved=null;applyAndRender();
+}
+function cycleList(id){                          // none → include → exclude → none
+  filter.exLists=filter.exLists||[];
+  const i=filter.lists.indexOf(id), e=filter.exLists.indexOf(id);
+  if(i>=0){filter.lists.splice(i,1);filter.exLists.push(id);}
+  else if(e>=0){filter.exLists.splice(e,1);}
+  else{filter.lists.push(id);}
+  activeSaved=null;applyAndRender();
+}
 
 /* ---------------- Focus list (local, ordered, NOT synced) ---------------- */
 function readFocusLS(){try{return JSON.parse(localStorage.getItem(LS_FOCUS)||"[]");}catch{return[];}}
@@ -895,7 +926,8 @@ function suggestName(){
   else if(filter.due==="after")p.push("≥ "+filter.dateA);
   else if(filter.due==="between")p.push((filter.dateA||"…")+"→"+(filter.dateB||"…"));
   filter.lists.map(id=>LISTS.find(l=>l.id===id)).filter(Boolean).forEach(l=>p.push(l.displayName));
-  filter.tags.forEach(t=>p.push("#"+t));if(filter.text)p.push('"'+filter.text+'"');
+  (filter.exLists||[]).map(id=>LISTS.find(l=>l.id===id)).filter(Boolean).forEach(l=>p.push("−"+l.displayName));
+  filter.tags.forEach(t=>p.push("#"+t));(filter.exTags||[]).forEach(t=>p.push("−#"+t));if(filter.text)p.push('"'+filter.text+'"');
   return p.join(" · ")||"My smart list";
 }
 
