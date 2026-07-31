@@ -1574,10 +1574,14 @@ function fillDetail(t){
    Chrome/Edge on Android + desktop. Needs a secure context (https or localhost) and
    mic permission; the recogniser itself is the browser's, no key or upload of ours. */
 function voiceReady(){
-  if(!SR){toast("Voice typing needs Chrome or Edge");return false;}
   if(!window.isSecureContext){toast("Voice typing needs the https address");return false;}
+  if(!whisperSupported()&&!SR){toast("Voice typing needs Chrome or Edge");return false;}
   return true;
 }
+/* Whisper is the preferred path; the Web Speech recogniser below is the offline fallback.
+   Whisper needs its model, so it can't be used on a device that has never downloaded it and
+   is currently offline — that's the one case where we drop back to live dictation. */
+function useWhisper(){return whisperSupported()&&(_asr||navigator.onLine!==false);}
 function dictate(on){                       // on:{partial,final,error,end} → returns a stop() handle
   const r=new SR();
   r.lang=navigator.language||"en-US";
@@ -1609,10 +1613,122 @@ function dictate(on){                       // on:{partial,final,error,end} → 
          abort(){stopped=true;try{r.abort();}catch(_){ }},
          text(){return finalTxt.trim();}};
 }
-/* Tap mic → speak → tap stop. The transcript is filed straight onto the task as a
-   timestamped note; no typing, no extra confirm step. */
+/* ---------------- Whisper: on-device transcription with punctuation ------------------
+   Same model family as the DailyCapture Android app (ggml-tiny.en → Xenova/whisper-tiny.en),
+   so capitalisation and punctuation read the same in both. Runs entirely in the browser via
+   transformers.js: no API key, no server, nothing leaves the device. ~40 MB fetched once and
+   then served from the browser cache.
+   Unlike the Web Speech API this cannot transcribe while you talk — it needs the finished
+   clip — so the flow is record, stop, transcribe. */
+const WHISPER_MODEL="Xenova/whisper-tiny.en";
+let _asr=null,_asrPending=null;
+function whisperSupported(){
+  return !!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+}
+async function loadWhisper(onProgress){
+  if(_asr)return _asr;
+  if(_asrPending)return _asrPending;
+  _asrPending=(async()=>{
+    const {pipeline}=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers");
+    const gpu=!!navigator.gpu;                 // WebGPU is 5-10x the WASM fallback
+    const seen={};
+    _asr=await pipeline("automatic-speech-recognition",WHISPER_MODEL,{
+      device:gpu?"webgpu":"wasm",
+      dtype:gpu?"fp32":"q8",
+      progress_callback:p=>{                   // several files download at once; report the total
+        if(!onProgress||p.status!=="progress"||!p.total)return;
+        seen[p.file]={loaded:p.loaded,total:p.total};
+        let l=0,tot=0;for(const k in seen){l+=seen[k].loaded;tot+=seen[k].total;}
+        if(tot)onProgress(Math.min(99,Math.round(l/tot*100)));
+      }
+    });
+    return _asr;
+  })();
+  try{return await _asrPending;}catch(e){_asrPending=null;throw e;}   // let a retry work
+}
+/* Mic → compressed blob. Whisper wants raw mono PCM, and decodeAudioData resamples to
+   whatever rate the context declares, so 16 kHz here does the conversion for us. */
+async function recordMic(){
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+  const mr=new MediaRecorder(stream),chunks=[];
+  const release=()=>stream.getTracks().forEach(tr=>{try{tr.stop();}catch(_){ }});
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  mr.start();
+  return{
+    stop(){return new Promise(res=>{
+      mr.onstop=()=>{release();res(new Blob(chunks,{type:mr.mimeType||"audio/webm"}));};
+      try{mr.stop();}catch(_){release();res(new Blob(chunks));}
+    });},
+    cancel(){try{mr.stop();}catch(_){ }release();}
+  };
+}
+async function blobToPCM(blob){
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  const ctx=new Ctx({sampleRate:16000});
+  try{
+    const buf=await ctx.decodeAudioData(await blob.arrayBuffer());
+    if(buf.numberOfChannels<2)return buf.getChannelData(0);
+    const a=buf.getChannelData(0),b=buf.getChannelData(1),out=new Float32Array(a.length);
+    for(let i=0;i<a.length;i++)out[i]=(a[i]+b[i])/2;
+    return out;
+  }finally{try{ctx.close();}catch(_){ }}
+}
+/* Punctuated transcript, or "" when the clip holds no usable speech. */
+async function whisperTranscribe(blob,onProgress){
+  const asr=await loadWhisper(onProgress);
+  const pcm=await blobToPCM(blob);
+  if(!pcm||pcm.length<16000*0.4)return "";                     // under 0.4s — nothing to read
+  const out=await asr(pcm,{chunk_length_s:30,stride_length_s:5});
+  const txt=((out&&out.text)||"").trim();
+  // Whisper labels silence and noise rather than returning empty; those aren't speech.
+  return /^[\[(]?\s*(blank_?audio|silence|music|inaudible|no speech)\s*[\])]?\.?$/i.test(txt)?"":txt;
+}
+
+/* Tap mic → speak → tap stop → Whisper transcribes, and the punctuated text is filed
+   straight onto the task as a timestamped note; no typing, no extra confirm step. */
 function openVoiceNote(t){
   if(!voiceReady())return;
+  if(!useWhisper())return openVoiceNoteLive(t);
+  showModal((card,close)=>{
+    card.classList.add("voicecard");
+    card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
+    const sub=el("div","vstate","Recording…");
+    const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop and transcribe";
+    const view=el("div","vtext");view.setAttribute("data-empty","Recording — tap stop when you're done.");
+    card.append(mic,sub,view);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Discard");
+    const save=el("button","btn2 primary","Save note");
+    foot.append(cancel,save);card.appendChild(foot);
+
+    let rec=null,done=false,busy=false;
+    const finish=txt=>{
+      if(done)return;done=true;
+      const v=(txt||"").trim();
+      if(v){prependNote(t,v);toast("Voice note added");}
+      else toast("Nothing was picked up");
+      close();
+    };
+    const fail=msg=>{if(done)return;done=true;toast(msg);close();};
+    const stopRec=async()=>{
+      if(busy||done)return;
+      if(!rec)return fail("The microphone never started");
+      busy=true;mic.classList.remove("rec");
+      sub.textContent="Transcribing…";
+      view.setAttribute("data-empty","Working on it — this takes a few seconds.");
+      let blob;
+      try{blob=await rec.stop();}catch(e){return fail("Couldn't finish the recording");}
+      try{finish(await whisperTranscribe(blob,p=>{sub.textContent="Downloading voice model… "+p+"%";}));}
+      catch(e){console.warn("Whisper failed",e);fail("Couldn't load the voice model — check your connection and try again");}
+    };
+    mic.onclick=stopRec;save.onclick=stopRec;
+    cancel.onclick=()=>{done=true;if(rec)rec.cancel();close();};
+    recordMic().then(h=>{if(done){h.cancel();return;}rec=h;})
+      .catch(e=>fail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
+  });
+}
+/* Offline fallback: the old live Web Speech flow, no punctuation but no model needed. */
+function openVoiceNoteLive(t){
   showModal((card,close)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
@@ -1652,20 +1768,43 @@ function openVoiceNote(t){
     cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
   });
 }
-/* Mic that dictates into a textarea (used in the typed-note modal). */
+/* Mic that dictates into a textarea (used in the typed-note modal). Whisper records then
+   transcribes, so the text lands in one punctuated go when you tap Stop. */
 function attachMic(btn,ta){
-  let handle=null,base="";
-  btn.onclick=()=>{
-    if(handle){handle.stop();return;}
+  let rec=null,live=null,busy=false;
+  const label=s=>{const sp=btn.querySelector("span");if(sp)sp.textContent=s;};
+  const reset=()=>{busy=false;rec=null;btn.classList.remove("rec");label("Speak");};
+  const append=txt=>{
+    if(!txt)return;
+    ta.value=(ta.value?ta.value.replace(/\s+$/,"")+" ":"")+txt;
+  };
+  btn.onclick=async()=>{
+    if(busy)return;                                   // mid-transcription; ignore taps
+    if(live){live.stop();return;}
+    if(rec){                                          // second tap → stop and transcribe
+      busy=true;btn.classList.remove("rec");label("Working…");
+      const h=rec;rec=null;
+      let blob;
+      try{blob=await h.stop();}catch(e){reset();toast("Couldn't finish the recording");return;}
+      try{append(await whisperTranscribe(blob,p=>label(p+"%")));ta.focus();}
+      catch(e){console.warn("Whisper failed",e);toast("Couldn't load the voice model — check your connection");}
+      reset();
+      return;
+    }
     if(!voiceReady())return;
-    base=ta.value?ta.value.replace(/\s+$/,"")+" ":"";
-    btn.classList.add("rec");btn.querySelector("span").textContent="Stop";
-    const reset=()=>{handle=null;btn.classList.remove("rec");btn.querySelector("span").textContent="Speak";};
-    handle=dictate({
-      partial:(f,i)=>{ta.value=base+f+(i?" "+i:"");},
-      end:txt=>{ta.value=(base+txt).trim();reset();ta.focus();},
-      error:c=>{reset();toast(c==="not-allowed"?"Microphone permission was blocked":"Voice typing stopped");}
-    });
+    if(!useWhisper()){                                // offline: live dictation, no punctuation
+      const base=ta.value?ta.value.replace(/\s+$/,"")+" ":"";
+      btn.classList.add("rec");label("Stop");
+      live=dictate({
+        partial:(f,i)=>{ta.value=base+f+(i?" "+i:"");},
+        end:txt=>{ta.value=(base+txt).trim();live=null;btn.classList.remove("rec");label("Speak");ta.focus();},
+        error:c=>{live=null;btn.classList.remove("rec");label("Speak");
+          toast(c==="not-allowed"?"Microphone permission was blocked":"Voice typing stopped");}
+      });
+      return;
+    }
+    try{rec=await recordMic();btn.classList.add("rec");label("Stop");}
+    catch(e){toast(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone");}
   };
 }
 
