@@ -205,10 +205,25 @@
   .fchips{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px}
   .chip.newf{border-style:dashed;color:var(--muted)}
   .tval{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600;min-width:56px;text-align:right}
-  .pill.running{background:rgba(37,100,207,.16);color:var(--accent);font-variant-numeric:tabular-nums}
+  .pill.running{background:var(--accent);color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
+  .pill.running svg{color:#fff}
+  .pill.running .rdot{width:7px;height:7px;border-radius:50%;background:#fff;flex:0 0 auto;animation:pulse 1.3s ease-in-out infinite}
   .timerchip{gap:6px;color:var(--accent)}
+  .timerchip.multi{background:var(--accent);color:#fff;border-color:var(--accent)}
   .timerchip svg{width:15px;height:15px}
   .timerchip span{font-variant-numeric:tabular-nums;font-weight:600}
+  /* header running-timers popover */
+  .timerpop{min-width:250px;max-width:320px;padding:7px}
+  .timerpop .tp-h{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:5px 8px 7px}
+  .timerpop .tp-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px}
+  .timerpop .tp-row:hover{background:var(--chip)}
+  .timerpop .tp-info{flex:1;min-width:0;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+  .timerpop .tp-t{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .timerpop .tp-sub{font-size:12px;color:var(--muted)}
+  .timerpop .tp-sub b{color:var(--accent);font-variant-numeric:tabular-nums}
+  .timerpop .tp-stop{flex:0 0 auto;border:0;background:none;color:var(--accent);padding:6px;border-radius:8px;display:grid;place-items:center}
+  .timerpop .tp-stop:hover{background:var(--accent-soft)}
+  .timerpop .tp-stop svg{width:17px;height:17px}
   .menu{position:fixed;z-index:80;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;min-width:200px;max-width:230px}
   .menuitem{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:9px 10px;border-radius:8px}
   .menuitem:hover{background:var(--chip)}
@@ -852,7 +867,8 @@ function applyAndRender(){
 /* ---------------- task list render ---------------- */
 function taskTotalMs(id){let ms=0;for(const r of TIMELOG)if(r.taskId===id)ms+=r.ms||0;return ms;}
 function runningPill(t){                                 // live-ticking elapsed chip, tied to its own task
-  const p=el("span","pill running");p.innerHTML=svg(IC.clock);
+  const p=el("span","pill running");p.title="Timer running";
+  p.innerHTML='<span class="rdot"></span>'+svg(IC.clock);
   const s=el("span","js-elapsed",fmtClock(elapsedMsFor(t.id)));s.dataset.tid=t.id;
   p.appendChild(s);return p;
 }
@@ -1358,6 +1374,7 @@ function ensureTimerTick(){
 function updateTimerUI(){
   const chip=$("#timerChip");if(!chip)return;
   const ids=Object.keys(activeTimers);
+  chip.classList.toggle("multi",ids.length>1);
   if(!ids.length){chip.style.display="none";return;}
   chip.style.display="inline-flex";
   if(ids.length===1){const t=TASKS.find(x=>x.id===ids[0]);
@@ -1365,8 +1382,36 @@ function updateTimerUI(){
     chip.title=(t?t.title+" — ":"")+"tap to open";
   }else{
     chip.innerHTML=`${svg(IC.clock)}<span>${ids.length} running</span>`;
-    chip.title=ids.length+" timers running — tap to open the most recent";
+    chip.title=ids.length+" timers running — tap to see them";
   }
+}
+function openTimerPop(anchor){
+  closeMenu();
+  const ids=Object.keys(activeTimers);if(!ids.length)return;
+  ids.sort((a,b)=>activeTimers[b]-activeTimers[a]);      // most recently started first
+  const m=el("div","menu timerpop");
+  const h=el("div","tp-h");h.textContent=`${ids.length} timer${ids.length>1?"s":""} running`;m.appendChild(h);
+  ids.forEach(id=>{
+    const t=TASKS.find(x=>x.id===id);
+    const row=el("div","tp-row");
+    const info=el("div","tp-info");
+    const ttl=el("div","tp-t",t?(t.title||"(untitled)"):"(task not loaded)");
+    const sub=el("div","tp-sub");sub.innerHTML=(t&&t._listName?escHtml(t._listName)+" · ":"")+'<b class="js-elapsed"></b>';
+    const b=sub.querySelector("b");b.dataset.tid=id;b.textContent=fmtClock(elapsedMsFor(id));
+    info.append(ttl,sub);
+    info.onclick=()=>{closeMenu();if(t){if(selMode)exitSelect();openDetail(t);}};   // jump to the task
+    const stop=el("button","tp-stop");stop.innerHTML=svg(IC.stop,"fill");stop.title="Stop & log";
+    stop.onclick=e=>{e.stopPropagation();stopTimer(id,true);
+      if(anyTimer())openTimerPop(anchor);else closeMenu();};
+    row.append(info,stop);m.appendChild(row);
+  });
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect(),w=280;
+  m.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+"px";
+  m.style.top=(r.bottom+6)+"px";
+  const mh=m.getBoundingClientRect().height;
+  if(r.bottom+6+mh>window.innerHeight)m.style.top=Math.max(8,r.top-mh-6)+"px";
+  setTimeout(()=>document.addEventListener("mousedown",closeMenuOutside),0);
 }
 
 /* ---------------- time log (structured, synced) + summaries ---------------- */
@@ -2263,9 +2308,10 @@ function wireUi(){
   $("#bulkMove").onclick=e=>bulkMove(e.currentTarget);
   $("#bulkDelete").onclick=bulkDelete;
   $("#newFocusBtn").onclick=()=>{const n=prompt("New focus list name:","Morning");if(n&&n.trim())enterFocus(newFocusList(n.trim()).id);};
-  $("#timerChip").onclick=()=>{const ids=Object.keys(activeTimers);if(!ids.length)return;   // open the most recently started running task
-    let latest=ids[0];for(const id of ids)if(activeTimers[id]>activeTimers[latest])latest=id;
-    const t=TASKS.find(x=>x.id===latest);if(t)openDetail(t);};
+  $("#timerChip").onclick=e=>{const ids=Object.keys(activeTimers);if(!ids.length)return;
+    if($(".timerpop")){closeMenu();return;}              // toggle closed if already open
+    if(ids.length===1){const t=TASKS.find(x=>x.id===ids[0]);if(t)openDetail(t);return;}
+    openTimerPop(e.currentTarget);};                      // 2+ → popover listing each task, jump/stop
   $("#summaryBtn").onclick=openSummary;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
   $("#menuBtn").onclick=openSide;
