@@ -1558,13 +1558,19 @@ function dictate(on){                       // on:{partial,final,error,end} → 
   r.continuous=true;                        // Android often ends on its own anyway — handled below
   r.interimResults=true;
   let finalTxt="",stopped=false;
+  /* Rebuild the whole transcript from e.results every time instead of appending the slice
+     from e.resultIndex. Chrome on Android hands back resultIndex 0 on every event, so the
+     append form re-added segments that were already final and the note came out as
+     "send send a send a message send a message out…". Rebuilding is idempotent: replaying
+     the same results yields the same string, so a repeated event can't duplicate text. */
   r.onresult=e=>{
-    let interim="";
-    for(let i=e.resultIndex;i<e.results.length;i++){
+    let fin="",interim="";
+    for(let i=0;i<e.results.length;i++){
       const res=e.results[i];
-      if(res.isFinal)finalTxt=(finalTxt?finalTxt+" ":"")+res[0].transcript.trim();
+      if(res.isFinal)fin=(fin?fin+" ":"")+res[0].transcript.trim();
       else interim+=res[0].transcript;
     }
+    finalTxt=fin;
     on.partial&&on.partial(finalTxt,interim.trim());
   };
   r.onerror=e=>{stopped=true;on.error&&on.error(e.error||"error");};
