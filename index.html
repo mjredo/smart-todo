@@ -313,6 +313,34 @@
   .btn2{border:1px solid var(--line);background:var(--panel);padding:9px 16px;border-radius:10px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
   .btn2:hover{border-color:var(--accent)}
   .btn2.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn2.danger{background:var(--red);color:#fff;border-color:var(--red)}
+  .btn2.danger:hover{border-color:var(--red);filter:brightness(1.05)}
+  .btn2:disabled{opacity:.45;pointer-events:none}
+  /* duplicate review modal */
+  .dedupmodal{width:min(640px,96vw)}
+  .dedup-rule{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+  .dedup-rule select{border:1px solid var(--line);background:var(--panel-2);border-radius:9px;padding:7px 9px;outline:none;color:var(--ink)}
+  .dedup-body{display:flex;flex-direction:column;gap:12px;overflow:auto;max-height:56vh;padding:2px}
+  .dedup-grp{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:7px}
+  .dedup-grp .gh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .dedup-grp .gh .gt{font-weight:600;font-size:14px}
+  .dedup-grp .gh .gl{font-size:12px;color:var(--muted)}
+  .dedup-grp .gh .gsum{margin-left:auto;font-size:12px;color:var(--muted)}
+  .dedup-grp .gh .gsum.warn{color:var(--amber);font-weight:600}
+  .dedup-row{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line-2);border-radius:10px;padding:9px 11px;cursor:pointer;transition:.12s}
+  .dedup-row .kbox{flex:0 0 auto;width:22px;height:22px;border-radius:6px;border:2px solid var(--muted);display:grid;place-items:center;color:transparent;margin-top:1px;background:var(--panel)}
+  .dedup-row .kbox .icon{width:14px;height:14px}
+  .dedup-row.keep{border-color:var(--green);background:var(--accent-soft)}
+  .dedup-row.keep .kbox{background:var(--green);border-color:var(--green);color:#fff}
+  .dedup-row.del{opacity:.72}
+  .dedup-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+  .dedup-meta{display:flex;flex-wrap:wrap;gap:6px}
+  .dedup-meta .db{font-size:11.5px;color:var(--muted);background:var(--chip);padding:1px 8px;border-radius:999px}
+  .dedup-note{font-size:12.5px;color:var(--ink);opacity:.8;white-space:pre-wrap;word-break:break-word}
+  .dedup-tag{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.05em;align-self:center}
+  .dedup-row.keep .dedup-tag{color:var(--green)}
+  .dedup-row.del .dedup-tag{color:var(--red)}
+  .dedup-foot{position:sticky;bottom:0;background:var(--panel);padding-top:4px}
   .minput{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:10px 12px;outline:none;font-size:14.5px}
   .minput:focus{border-color:var(--accent)}
   .locrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -1484,32 +1512,103 @@ async function deleteTask(t){
     TASKS=TASKS.filter(x=>x!==t);rebuildTags();renderTagChips();closeDetail();applyAndRender();cacheData();toast("Deleted");}
   catch(e){error(e.message);}
 }
-/* Remove duplicate OPEN tasks (same title + same list). Keeps the richest/oldest
-   copy of each and deletes the rest — user-confirmed, never touches completed tasks. */
+/* Duplicate cleanup = same title + same list among OPEN tasks. Opens a review
+   modal so you see every copy and tick exactly which to keep vs delete;
+   completed tasks are never touched. */
 function dupKey(t){return (t.title||"").trim().replace(/\s+/g," ").toLowerCase()+"|"+t._listId;}
-function dupScore(t){                                   // higher = keep this copy
-  let s=String(t.id).startsWith("tmp_")?0:1000;         // prefer a real (synced) task over a pending temp
-  s+=(t.checklistItems||[]).length*10;
-  if(bodyText(t))s+=5; if(t.isReminderOn)s+=2; if(t.recurrence)s+=2;
-  return s;
+function dupMs(x){return x?(Date.parse(x)||0):0;}
+function dupContent(t){return (t.checklistItems||[]).length*1000+(bodyText(t)?bodyText(t).length:0)+(t.isReminderOn?20:0)+(t.recurrence?20:0);}
+function pickKeepIdx(arr,rule){                          // index of the copy to keep by default
+  const ix=arr.map((_,i)=>i);
+  if(rule==="oldest") return ix.sort((a,b)=>dupMs(arr[a].createdDateTime)-dupMs(arr[b].createdDateTime))[0];
+  if(rule==="newest") return ix.sort((a,b)=>dupMs(arr[b].createdDateTime)-dupMs(arr[a].createdDateTime))[0];
+  if(rule==="edited") return ix.sort((a,b)=>dupMs(arr[b].lastModifiedDateTime)-dupMs(arr[a].lastModifiedDateTime)||dupMs(arr[b].createdDateTime)-dupMs(arr[a].createdDateTime))[0];
+  return ix.sort((a,b)=>dupContent(arr[b])-dupContent(arr[a])||dupMs(arr[a].createdDateTime)-dupMs(arr[b].createdDateTime))[0]; // richest (default)
 }
-async function cleanupDuplicates(){
-  const groups=new Map();
+function cleanupDuplicates(){
+  const map=new Map();
   for(const t of TASKS){
     if(t.status==="completed")continue;                 // never touch completed history
     if(!(t.title||"").trim())continue;
-    const k=dupKey(t);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(t);
+    const k=dupKey(t);if(!map.has(k))map.set(k,[]);map.get(k).push(t);
   }
-  const extras=[];let dupTitles=0;
-  for(const arr of groups.values()){
-    if(arr.length<2)continue;dupTitles++;
-    arr.sort((a,b)=>dupScore(b)-dupScore(a)||(Date.parse(a.createdDateTime||0)-Date.parse(b.createdDateTime||0)));
-    extras.push(...arr.slice(1));                        // keep arr[0], delete the rest
-  }
-  if(!extras.length){toast("No duplicates found");return;}
-  if(!confirm(`Found ${extras.length} duplicate task${extras.length>1?"s":""} across ${dupTitles} title${dupTitles>1?"s":""}.\nDelete the ${extras.length} extra${extras.length>1?"s":""} (keeping one copy of each) from Microsoft To Do?\n\nThis can't be undone.`))return;
-  const tmps=extras.filter(t=>String(t.id).startsWith("tmp_"));
-  const reals=extras.filter(t=>!String(t.id).startsWith("tmp_"));
+  const groups=[...map.values()].filter(a=>a.length>1);
+  if(!groups.length){toast("No duplicates found");return;}
+  openDedupeReview(groups);
+}
+function openDedupeReview(groups){
+  const keep=new Set();let rule="richest";
+  const applyRule=()=>{keep.clear();groups.forEach(g=>keep.add(g[pickKeepIdx(g,rule)].id));};
+  applyRule();
+  const total=groups.reduce((n,g)=>n+g.length,0);
+  showModal((card,close)=>{
+    card.classList.add("dedupmodal");
+    const head=el("div");head.innerHTML=`<div class="mtitle">Review duplicates</div>`;
+    const sub=el("div","msub");sub.textContent=`${groups.length} set${groups.length>1?"s":""} · ${total} tasks. Tick the copies to KEEP; the rest get deleted.`;
+    const rr=el("div","dedup-rule");const lbl=el("label",null,"Keep by default:");
+    const sel=el("select");[["richest","Most notes / steps"],["oldest","Oldest"],["newest","Newest"],["edited","Most recently edited"]].forEach(([v,l])=>{const o=el("option",null,l);o.value=v;sel.appendChild(o);});
+    sel.value=rule;rr.append(lbl,sel);
+    const body=el("div","dedup-body");
+    const foot=el("div","mfoot dedup-foot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const del=el("button","btn2 danger");
+    const toDelete=()=>{const a=[];groups.forEach(g=>g.forEach(t=>{if(!keep.has(t.id))a.push(t);}));return a;};
+    function refresh(){
+      const d=toDelete().length;del.textContent=d?`Delete ${d} task${d>1?"s":""}`:"Nothing to delete";del.disabled=!d;
+      body.querySelectorAll(".dedup-grp").forEach(gEl=>{const g=groups[+gEl.dataset.gi];let k=0;g.forEach(t=>{if(keep.has(t.id))k++;});
+        gEl.querySelector(".gsum").textContent=`keep ${k} · delete ${g.length-k}`;
+        gEl.querySelector(".gsum").className="gsum"+(k===0?" warn":"");});
+    }
+    function rows(){
+      body.innerHTML="";
+      groups.forEach((g,gi)=>{
+        const gEl=el("div","dedup-grp");gEl.dataset.gi=gi;
+        const gh=el("div","gh");
+        gh.innerHTML=`<span class="gt"></span><span class="gl"></span><span class="gsum"></span>`;
+        gh.querySelector(".gt").textContent=g[0].title||"(untitled)";
+        gh.querySelector(".gl").textContent=(g[0]._listName||"")+" · "+g.length+" copies";
+        gEl.appendChild(gh);
+        g.forEach(t=>{
+          const kept=keep.has(t.id);
+          const r=el("div","dedup-row"+(kept?" keep":" del"));
+          const kb=el("span","kbox");kb.innerHTML=svg(IC.check);
+          const info=el("div","dedup-info");
+          const created=t.createdDateTime?new Date(t.createdDateTime).toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}):"—";
+          const edited=t.lastModifiedDateTime?new Date(t.lastModifiedDateTime).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";
+          const steps=(t.checklistItems||[]).length,note=bodyText(t);
+          const b=[`Created ${created}`];
+          if(edited)b.push(`Edited ${edited}`);
+          if(steps)b.push(`${steps} step${steps>1?"s":""}`);
+          if(note)b.push(`${note.length} char note`);
+          if(t.importance==="high")b.push("★ Starred");
+          if(t.isReminderOn)b.push("⏰ Reminder");
+          if(t.recurrence)b.push("🔁 Repeats");
+          if(String(t.id).startsWith("tmp_"))b.push("not synced yet");
+          const meta=el("div","dedup-meta");meta.innerHTML=b.map(x=>`<span class="db"></span>`).join("");
+          [...meta.children].forEach((s,i)=>s.textContent=b[i]);
+          info.appendChild(meta);
+          if(note){const nn=el("div","dedup-note");nn.textContent=note.length>160?note.slice(0,160)+"…":note;info.appendChild(nn);}
+          const tag=el("span","dedup-tag");tag.textContent=kept?"KEEP":"DELETE";
+          r.append(kb,info,tag);
+          r.onclick=()=>{const on=!keep.has(t.id);if(on)keep.add(t.id);else keep.delete(t.id);
+            r.classList.toggle("keep",on);r.classList.toggle("del",!on);tag.textContent=on?"KEEP":"DELETE";refresh();};
+          gEl.appendChild(r);
+        });
+        body.appendChild(gEl);
+      });
+      refresh();
+    }
+    sel.onchange=()=>{rule=sel.value;applyRule();rows();};
+    del.onclick=async()=>{const arr=toDelete();if(!arr.length)return;
+      if(!confirm(`Delete ${arr.length} task${arr.length>1?"s":""} from Microsoft To Do? This can't be undone.`))return;
+      close();await runDedupeDeletion(arr);};
+    foot.append(cancel,del);
+    card.append(head,sub,rr,body,foot);
+    rows();
+  });
+}
+async function runDedupeDeletion(arr){
+  const tmps=arr.filter(t=>String(t.id).startsWith("tmp_")),reals=arr.filter(t=>!String(t.id).startsWith("tmp_"));
   if(reals.length&&!requireOnline())return;
   for(const t of tmps){outbox=outbox.filter(o=>o.tempId!==t.id&&o.taskId!==t.id);TASKS=TASKS.filter(x=>x!==t);}
   saveOutbox();
