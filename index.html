@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -135,6 +135,35 @@
   .pinbtn{flex:0 0 auto;border:0;background:none;color:var(--muted);padding:3px;border-radius:8px;margin-top:-1px;opacity:.65}
   .pinbtn:hover{color:var(--accent);opacity:1}
   .pinbtn.on{color:var(--accent);opacity:1}
+  /* per-row timer control (list view) */
+  .tmr{flex:0 0 auto;border:0;background:none;color:var(--muted);padding:3px;border-radius:8px;margin-top:-1px}
+  .tmr:hover{color:var(--accent);background:var(--chip)}
+  .tmr.on{color:var(--accent)}
+  .tmr.on svg{animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.45}}
+  .pill.total{background:var(--chip);color:var(--muted)}
+
+  /* drag-to-reorder (custom "My order" sort) */
+  .task[draggable=true]{cursor:grab}
+  .task.dragging{opacity:.45;cursor:grabbing}
+  .task.dragover-t{box-shadow:0 -3px 0 -1px var(--accent),var(--shadow-sm)}
+  .task.dragover-b{box-shadow:0 3px 0 -1px var(--accent),var(--shadow-sm)}
+  .grip{flex:0 0 auto;color:var(--muted);opacity:.5;padding:3px;margin-top:-1px;cursor:grab}
+  .grip:hover{opacity:1;color:var(--accent)}
+
+  /* voice capture sheet */
+  .voicecard{align-items:center;text-align:center;gap:14px;width:min(430px,94vw)}
+  .vmic{width:74px;height:74px;border-radius:50%;border:0;background:var(--red);color:#fff;display:grid;place-items:center;box-shadow:var(--shadow-md)}
+  .vmic svg{width:32px;height:32px;stroke-width:2}
+  .vmic.rec{animation:rec 1.4s ease-in-out infinite}
+  @keyframes rec{50%{transform:scale(1.09);box-shadow:0 0 0 14px rgba(214,59,59,.16)}}
+  .vstate{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .vtext{width:100%;min-height:96px;max-height:34vh;overflow:auto;text-align:left;border:1px solid var(--line);
+         border-radius:12px;background:var(--panel-2);padding:12px;font-size:15px;line-height:1.55;white-space:pre-wrap}
+  .vtext:empty::before{content:attr(data-empty);color:var(--muted)}
+  .vtext .interim{color:var(--muted)}
+  .micbtn.rec{color:var(--red);border-color:var(--red)}
+
   .freorder{display:flex;align-items:center;gap:2px;flex:0 0 auto}
   .fbtn{border:0;background:none;color:var(--muted);padding:6px;border-radius:8px}
   .fbtn:hover:not(:disabled){background:var(--chip);color:var(--accent)}
@@ -187,10 +216,17 @@
   .dclose{border:0;background:none;color:var(--muted);padding:7px;border-radius:9px}
   .dclose:hover{background:var(--chip)}
   .dbody{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+  /* sections must never be squeezed: .dsection has overflow:hidden, which zeroes a
+     flex item's automatic minimum size — without this they collapse to their borders
+     and silently clip (Focus lists vanishing behind Time tracking). */
+  .dbody>*{flex:0 0 auto}
   .dtitlerow{display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--line);
              border-radius:12px;padding:12px}
   .dtitlerow .ck{margin-top:2px}
-  .dtitlerow textarea{flex:1;border:0;background:none;outline:none;resize:none;font-size:16px;font-weight:600;min-height:26px}
+  /* max-height is a hard backstop: a mis-measured autosize must never be able to
+     push the sections below it off-screen */
+  .dtitlerow textarea{flex:1;min-width:0;border:0;background:none;outline:none;resize:none;
+                      font-size:16px;font-weight:600;min-height:26px;max-height:40vh;overflow-y:auto}
   .dsection{border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .drow{display:flex;align-items:center;gap:11px;padding:11px 13px;width:100%;background:none;border:0;text-align:left;border-bottom:1px solid var(--line-2)}
   .drow:last-child{border-bottom:0}
@@ -202,6 +238,11 @@
           background:var(--panel-2);border-radius:9px;padding:7px 9px;outline:none;max-width:60%}
   .drow .clr{border:0;background:none;color:var(--muted);padding:5px;border-radius:7px}
   .drow .clr:hover{color:var(--red);background:var(--chip)}
+  .drow.noline{border-bottom:0}
+  /* controls on their own wrapping line, so a narrow drawer can't cram buttons
+     into the label row and balloon it to 200px tall */
+  .dactions{display:flex;gap:8px;flex-wrap:wrap;padding:0 13px 12px}
+  .dactions .btn2{flex:0 0 auto}
   .steps{display:flex;flex-direction:column}
   .step{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line-2)}
   .step .sck{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted);display:grid;place-items:center;background:none;color:transparent;flex:0 0 auto}
@@ -383,6 +424,7 @@
           <option value="title">A → Z</option>
           <option value="created">Newest</option>
           <option value="completed">Recently completed</option>
+          <option value="manual">My order (drag)</option>
         </select>
       </label>
       <button class="tool iconly" id="summaryBtn" title="Time summary"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18M8 17V10M13 17V6M18 17v-4"/></svg></button>
@@ -495,6 +537,10 @@ const LS_TIMER="smarttodo.timer.v1";
 const LS_TIMELOG="smarttodo.timelog.v1";
 const CLOUD_TIMELOG="/me/drive/special/approot:/time-log.json:/content";
 const CLOUD_FOCUS="/me/drive/special/approot:/focus.json:/content";
+const LS_ORDER="smarttodo.order.v1", LS_SORT="smarttodo.sort.v1";
+const CLOUD_ORDER="/me/drive/special/approot:/task-order.json:/content";
+let ORDER=[], _rank=new Map();          // manual drag order: task ids, best-effort synced
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;   // voice notes
 const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1", LS_LASTSYNC="smarttodo.lastsync.v1";
 let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LASTSYNC)||0;
 
@@ -523,7 +569,11 @@ const IC={
   expand:'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   mappin:'<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
-  chart:'<path d="M3 3v18h18M8 17V10M13 17V6M18 17v-4"/>'
+  chart:'<path d="M3 3v18h18M8 17V10M13 17V6M18 17v-4"/>',
+  play:'<path d="M8 5.5v13l11-6.5z"/>',
+  stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
+  mic:'<path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  grip:'<path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/>'
 };
 const svg=(p,cls)=>`<svg class="icon ${cls||''}" viewBox="0 0 24 24">${p}</svg>`;
 
@@ -566,18 +616,19 @@ async function gfetch(path,opts){
 async function start(){
   show("loading"); wireUi(); loadOutbox(); loadTimer();
   try{
-    await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog();
+    await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder();
     offline=false; cacheData(); markSynced();
   }catch(e){
     const snap=loadCache();
     if(snap){                                   // no network → use the last saved snapshot
       LISTS=snap.lists; TASKS=snap.tasks; rebuildTags();
-      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); offline=true;
+      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS(); offline=true;
     }else{                                       // never synced on this device yet
       show("app"); error("Can't reach Microsoft, and no offline copy is saved yet. Connect once to load your tasks."); return;
     }
   }
   outbox.forEach(applyOpLocal);                  // re-apply any unsynced local changes on top
+  reindexOrder(); sortKey=localStorage.getItem(LS_SORT)||sortKey;
   renderNav(); renderFilterControls(); applyAndRender();
   show("app"); updateNetUI(); updateTimerUI(); if(activeTimer)ensureTimerTick();
   if(!isOffline()) flushOutbox();
@@ -606,6 +657,50 @@ function parseYMD(s){if(!s)return null;const[y,m,d]=s.split("-").map(Number);if(
 function todayISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function dueNeedsDates(m){return m==="on"||m==="before"||m==="after"||m==="between";}
 function fmtDate(d){const diff=Math.round((d-startOfToday())/864e5);if(diff===0)return"Today";if(diff===1)return"Tomorrow";if(diff===-1)return"Yesterday";return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()!==new Date().getFullYear()?"numeric":undefined});}
+
+/* --- Graph dateTimeTimeZone <-> <input type=datetime-local> ---------------
+   Graph hands back a wall-clock string plus the zone it belongs to. To Do may
+   answer in UTC, in a named IANA zone, or in a Windows zone name, so the zone
+   field has to be honoured — assuming UTC always shifts the shown time by the
+   local offset. We always WRITE in UTC so the round trip is unambiguous.      */
+const UTC_ZONE=/^(utc|gmt|z|etc\/utc|etc\/gmt|coordinated universal time)$/i;
+function zoneShiftMs(utcMs,zone){                 // how far ahead of UTC the zone's clock is
+  const p={};
+  for(const x of new Intl.DateTimeFormat("en-US",{timeZone:zone,hour12:false,
+      year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"})
+      .formatToParts(new Date(utcMs)))p[x.type]=x.value;
+  return Date.UTC(+p.year,+p.month-1,+p.day,(+p.hour)%24,+p.minute,+p.second)-utcMs;
+}
+function wallClockToMs(y,mo,d,h,mi,s,zone){       // "h:mi on that date, in zone" → epoch ms
+  const guess=Date.UTC(y,mo-1,d,h,mi,s);
+  try{
+    let ms=guess-zoneShiftMs(guess,zone);
+    return guess-zoneShiftMs(ms,zone);            // second pass settles DST edges
+  }catch(e){return new Date(y,mo-1,d,h,mi,s).getTime();}   // unknown/Windows zone → device local
+}
+function graphMs(dtz){                            // Graph dateTimeTimeZone → epoch ms (null if absent)
+  if(!dtz||!dtz.dateTime)return null;
+  const m=String(dtz.dateTime).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(!m)return null;
+  const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
+  const zone=String(dtz.timeZone||"UTC").trim();
+  if(!zone||UTC_ZONE.test(zone))return Date.UTC(y,mo-1,d,h,mi,s);
+  if(zone===TZ)return new Date(y,mo-1,d,h,mi,s).getTime();
+  return wallClockToMs(y,mo,d,h,mi,s,zone);
+}
+function toLocalInput(ms){                        // epoch ms → "YYYY-MM-DDTHH:MM" for datetime-local
+  if(ms==null||isNaN(ms))return"";
+  const d=new Date(ms),p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function localInputToGraph(v){                    // "YYYY-MM-DDTHH:MM" (device local) → UTC dateTimeTimeZone
+  const m=String(v||"").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if(!m)return null;
+  const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],0,0);
+  if(isNaN(d))return null;
+  const p=n=>String(n).padStart(2,"0");
+  return{dateTime:`${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:00.0000000`,timeZone:"UTC"};
+}
 
 /* ---------------- filtering ---------------- */
 function matches(t){
@@ -646,13 +741,16 @@ const SORTS={
   importance:(a,b)=>((b.importance==="high")-(a.importance==="high"))||SORTS.due(a,b),
   title:(a,b)=>(a.title||"").localeCompare(b.title||""),
   created:(a,b)=>new Date(b.createdDateTime||0)-new Date(a.createdDateTime||0),
-  completed:(a,b)=>(compTime(b)-compTime(a))||SORTS.due(a,b)
+  completed:(a,b)=>(compTime(b)-compTime(a))||SORTS.due(a,b),
+  manual:(a,b)=>(rankOf(a)-rankOf(b))||SORTS.due(a,b)
 };
 function compTime(t){const c=t.completedDateTime&&t.completedDateTime.dateTime;return c?Date.parse(c):0;}
 function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.exLists&&filter.exLists.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.exTags&&filter.exTags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
 function applyAndRender(){
   if(focusView){renderFocusView();return;}
-  const rows=TASKS.filter(matches).sort(SORTS[sortKey]||SORTS.due);
+  const rows=TASKS.filter(matches);
+  if(sortKey==="manual"){rows.sort(SORTS.due);ensureRanked(rows);rows.sort(SORTS.manual);}
+  else rows.sort(SORTS[sortKey]||SORTS.due);
   renderTasks(rows);
   $("#count").textContent=rows.length;
   const n=activeFacetCount(),b=$("#filterBadge");b.style.display=n?"inline-block":"none";b.textContent=n;
@@ -660,20 +758,60 @@ function applyAndRender(){
 }
 
 /* ---------------- task list render ---------------- */
+function taskTotalMs(id){let ms=0;for(const r of TIMELOG)if(r.taskId===id)ms+=r.ms||0;return ms;}
+function runningPill(){                                  // live-ticking elapsed chip
+  const p=el("span","pill running");p.innerHTML=svg(IC.clock);
+  p.appendChild(el("span","js-elapsed",fmtClock(elapsedMs())));return p;
+}
+function timerBtn(t){
+  const on=!!activeTimer&&activeTimer.taskId===t.id;
+  const b=el("button","tmr"+(on?" on":""));
+  b.innerHTML=svg(on?IC.stop:IC.play,"fill");
+  b.title=on?"Stop timer":"Start timer";
+  b.onclick=e=>{e.stopPropagation();on?stopTimer(true):startTimer(t);};
+  return b;
+}
+let _dragId=null,_dragEndAt=0;
+function wireDrag(row,t){
+  row.draggable=true;
+  row.ondragstart=e=>{_dragId=t.id;row.classList.add("dragging");
+    e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",t.id);}catch(_){}};
+  row.ondragend=()=>{row.classList.remove("dragging");_dragEndAt=Date.now();_dragId=null;
+    $$("#taskList .task").forEach(x=>x.classList.remove("dragover-t","dragover-b"));};
+  row.ondragover=e=>{
+    if(!_dragId||_dragId===t.id)return;
+    e.preventDefault();e.dataTransfer.dropEffect="move";
+    const r=row.getBoundingClientRect(),after=(e.clientY-r.top)>r.height/2;
+    row.classList.toggle("dragover-b",after);row.classList.toggle("dragover-t",!after);};
+  row.ondragleave=()=>row.classList.remove("dragover-t","dragover-b");
+  row.ondrop=e=>{
+    e.preventDefault();row.classList.remove("dragover-t","dragover-b");
+    if(!_dragId||_dragId===t.id)return;
+    const box=$("#taskList"),src=[...box.children].find(c=>c.dataset.id===_dragId);
+    if(!src)return;
+    const r=row.getBoundingClientRect(),after=(e.clientY-r.top)>r.height/2;
+    box.insertBefore(src,after?row.nextSibling:row);
+    applyVisibleOrder([...box.children].map(c=>c.dataset.id).filter(Boolean));
+    applyAndRender();};
+}
 function renderTasks(rows){
   const box=$("#taskList");box.innerHTML="";
   if(!rows.length){box.innerHTML=`<div class="empty">${svg(IC.inbox)}<div>No tasks match this view.</div></div>`;return;}
-  const today=startOfToday();
-  for(const t of rows){
+  const today=startOfToday(),manual=sortKey==="manual",ids=rows.map(t=>t.id);
+  rows.forEach((t,idx)=>{
     const done=t.status==="completed";
     const row=el("div","task"+(done?" done":"")+(t._pending?" _pend":""));
+    row.dataset.id=t.id;
+    if(manual)wireDrag(row,t);
     const ck=el("button","ck");ck.innerHTML=svg(IC.check);ck.title=done?"Mark not done":"Mark done";
     ck.onclick=e=>{e.stopPropagation();toggleDone(t);};
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
     const meta=el("div","tmeta");
     if(t._pending)meta.appendChild(pill("not synced yet",null,IC.repeat));
-    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(pill(fmtDur(elapsedMs()),"running",IC.clock));
+    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(runningPill());
+    const tot=taskTotalMs(t.id);
+    if(tot>=1000)meta.appendChild(pill(fmtDur(tot),"total",IC.chart));
     if(!filter.lists.length||filter.lists.length>1) meta.appendChild(pill(t._listName,"list"));
     const d=taskDue(t);
     if(d){const over=d<today,tod=d.getTime()===today.getTime();meta.appendChild(pill(fmtDate(d),over?"due-over":(tod?"due-today":""),IC.cal));}
@@ -687,10 +825,22 @@ function renderTasks(rows){
     star.title="Star";star.onclick=e=>{e.stopPropagation();toggleStar(t);};
     const pin=el("button","pinbtn"+(anyFocus(t)?" on":""));pin.innerHTML=svg(IC.pin,anyFocus(t)?"fill":"");
     pin.title="Add to a focus list";pin.onclick=e=>{e.stopPropagation();openFocusMenu(pin,t);};
-    row.appendChild(ck);row.appendChild(body);row.appendChild(star);row.appendChild(pin);
-    row.onclick=()=>openDetail(t);
+    row.appendChild(ck);
+    if(manual&&!IS_MOBILE){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder";row.appendChild(g);}
+    row.appendChild(body);
+    if(!done)row.appendChild(timerBtn(t));
+    row.appendChild(star);row.appendChild(pin);
+    if(manual&&IS_MOBILE){                               // dragging needs a mouse; give touch an equivalent
+      const ctrl=el("div","freorder");
+      const up=el("button","fbtn");up.innerHTML=svg(IC.up);up.disabled=idx===0;up.title="Move up";
+      up.onclick=e=>{e.stopPropagation();moveInOrder(t.id,-1,ids);};
+      const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";
+      dn.onclick=e=>{e.stopPropagation();moveInOrder(t.id,1,ids);};
+      ctrl.append(up,dn);row.appendChild(ctrl);
+    }
+    row.onclick=()=>{if(Date.now()-_dragEndAt<250)return;openDetail(t);};
     box.appendChild(row);
-  }
+  });
 }
 function pill(txt,cls,icon){const p=el("span","pill "+(cls||""));if(icon)p.innerHTML=svg(icon);if(txt)p.appendChild(document.createTextNode(txt));return p;}
 function hlTags(s){const esc=s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));return esc.replace(/#[\p{L}\d_\-]+/gu,m=>'<span class="tag-hl">'+m+'</span>');}
@@ -814,6 +964,42 @@ function saveFocus(){
   localStorage.setItem(LS_FOCUS,JSON.stringify(FOCUS));
   if(cloudOK)gfetch(CLOUD_FOCUS,{method:"PUT",body:JSON.stringify(FOCUS)}).catch(()=>{});
 }
+/* ---------------- manual (drag) order ---------------- */
+function readOrderLS(){try{const a=JSON.parse(localStorage.getItem(LS_ORDER)||"[]");return Array.isArray(a)?a.filter(x=>typeof x==="string"):[];}catch{return[];}}
+async function loadOrder(){
+  try{const j=await gfetch(CLOUD_ORDER);const a=Array.isArray(j)?j:(j&&j.order)||[];
+    const o=a.filter(x=>typeof x==="string");localStorage.setItem(LS_ORDER,JSON.stringify(o));return o;}
+  catch(e){return readOrderLS();}                       // 404 (no file yet) or offline → local copy
+}
+function saveOrder(){
+  localStorage.setItem(LS_ORDER,JSON.stringify(ORDER));
+  if(cloudOK)gfetch(CLOUD_ORDER,{method:"PUT",body:JSON.stringify(ORDER)}).catch(()=>{});
+}
+function reindexOrder(){_rank=new Map();ORDER.forEach((id,i)=>{if(!_rank.has(id))_rank.set(id,i);});}
+function rankOf(t){const r=_rank.get(t.id);return r===undefined?Infinity:r;}
+function ensureRanked(rows){                            // give newly-seen tasks a slot, keeping the order they're shown in
+  let added=false;
+  for(const t of rows)if(!_rank.has(t.id)){ORDER.push(t.id);_rank.set(t.id,ORDER.length-1);added=true;}
+  if(added)saveOrder();
+}
+/* Reorder within a filtered view: the visible tasks keep the slots they already
+   occupy in the global order, but get re-dealt into the new sequence. Tasks that
+   aren't on screen never move. */
+function applyVisibleOrder(ids){
+  const want=new Set(ids), slots=[];
+  ORDER.forEach((id,i)=>{if(want.has(id))slots.push(i);});
+  for(const id of ids)if(!_rank.has(id)){ORDER.push(id);slots.push(ORDER.length-1);}
+  slots.sort((a,b)=>a-b);
+  ids.forEach((id,k)=>{if(slots[k]!==undefined)ORDER[slots[k]]=id;});
+  reindexOrder();saveOrder();
+}
+function moveInOrder(id,dir,ids){                       // up/down buttons (touch-friendly alternative to dragging)
+  const i=ids.indexOf(id),j=i+dir;
+  if(i<0||j<0||j>=ids.length)return;
+  const next=ids.slice();[next[i],next[j]]=[next[j],next[i]];
+  applyVisibleOrder(next);applyAndRender();
+}
+
 function focusById(id){return FOCUS.lists.find(l=>l.id===id);}
 function inFocus(t,id){const l=focusById(id);return !!l&&l.taskIds.includes(t.id);}
 function anyFocus(t){return FOCUS.lists.some(l=>l.taskIds.includes(t.id));}
@@ -957,7 +1143,8 @@ function renderFocusView(){
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
     const meta=el("div","tmeta");
-    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(pill(fmtDur(elapsedMs()),"running",IC.clock));
+    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(runningPill());
+    const tot=taskTotalMs(t.id);if(tot>=1000)meta.appendChild(pill(fmtDur(tot),"total",IC.chart));
     meta.appendChild(pill(t._listName,"list"));
     const d=taskDue(t);if(d){const over=d<today,tod=d.getTime()===today.getTime();meta.appendChild(pill(fmtDate(d),over?"due-over":(tod?"due-today":""),IC.cal));}
     body.appendChild(meta);
@@ -966,7 +1153,9 @@ function renderFocusView(){
     const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";dn.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,1);};
     const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Remove from this list";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();toggleFocusMember(t,activeFocusId);};
     ctrl.appendChild(up);ctrl.appendChild(dn);ctrl.appendChild(rm);
-    row.appendChild(ck);row.appendChild(body);row.appendChild(ctrl);
+    row.appendChild(ck);row.appendChild(body);
+    if(t.status!=="completed")row.appendChild(timerBtn(t));
+    row.appendChild(ctrl);
     row.onclick=()=>openDetail(t);
     box.appendChild(row);
   });
@@ -1024,7 +1213,16 @@ function stopTimer(log){
   }else{applyAndRender();if(detailTask&&detailTask.id===id)fillDetail(detailTask);}
   return ms;
 }
-function ensureTimerTick(){if(_timerInt)return;_timerInt=setInterval(()=>{if(!activeTimer){clearInterval(_timerInt);_timerInt=null;return;}updateTimerUI();const v=$("#detailTimerVal");if(v)v.textContent=fmtClock(elapsedMs());},1000);}
+function ensureTimerTick(){
+  if(_timerInt)return;
+  _timerInt=setInterval(()=>{
+    if(!activeTimer){clearInterval(_timerInt);_timerInt=null;return;}
+    updateTimerUI();
+    const v=$("#detailTimerVal");if(v)v.textContent=fmtClock(elapsedMs());
+    const s=fmtClock(elapsedMs());
+    $$(".js-elapsed").forEach(e=>{e.textContent=s;});      // live chips in the task list
+  },1000);
+}
 function updateTimerUI(){
   const chip=$("#timerChip");if(!chip)return;
   if(activeTimer){const t=TASKS.find(x=>x.id===activeTimer.taskId);chip.style.display="inline-flex";
@@ -1212,12 +1410,28 @@ function recurrenceKind(r){if(!r||!r.pattern)return"none";const p=r.pattern;
   if(p.type==="absoluteYearly"||p.type==="relativeYearly")return"yearly";return"weekly";}
 
 /* ---------------- detail drawer ---------------- */
-function openDetail(t){detailTask=t;fillDetail(t);$("#detail").classList.add("open");$("#scrim").classList.add("on");}
+/* The title box grows with its text. Measuring scrollHeight before layout has
+   settled returns a wildly wrong value (the box is still ~1 character wide), and
+   that bogus height gets frozen into the inline style — which used to bury the
+   sections below it. Measure after two frames, again once fonts land, and clamp. */
+function autoGrow(ta){
+  ta.style.height="auto";
+  const cap=Math.round(window.innerHeight*0.4);
+  ta.style.height=Math.max(26,Math.min(ta.scrollHeight,cap))+"px";
+}
+function sizeTitleSoon(ta){
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(ta.isConnected)autoGrow(ta);}));
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(ta.isConnected)autoGrow(ta);}).catch(()=>{});
+}
+function openDetail(t){
+  detailTask=t;fillDetail(t);$("#detail").classList.add("open");$("#scrim").classList.add("on");
+  const ta=$("#detailBody .dtitlerow textarea");if(ta)sizeTitleSoon(ta);   // re-measure now that it's on screen
+}
 function closeDetail(){detailTask=null;$("#detail").classList.remove("open");if(!$("#filterPop").classList.contains("open"))$("#scrim").classList.remove("on");}
 function fillDetail(t){
   $("#detailList").textContent=t._listName;
   const dueISO=t.dueDateTime?String(t.dueDateTime.dateTime).slice(0,10):"";
-  const remISO=t.isReminderOn&&t.reminderDateTime?String(t.reminderDateTime.dateTime).slice(0,16):"";
+  const remISO=t.isReminderOn&&t.reminderDateTime?toLocalInput(graphMs(t.reminderDateTime)):"";
   const rec=recurrenceKind(t.recurrence);
   const steps=t.checklistItems||[];
   const created=t.createdDateTime?new Date(t.createdDateTime).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"";
@@ -1229,12 +1443,12 @@ function fillDetail(t){
   ck.innerHTML=svg(IC.check);ck.style.background=t.status==="completed"?"var(--accent)":"";ck.style.borderColor=t.status==="completed"?"var(--accent)":"";ck.style.color=t.status==="completed"?"#fff":"";
   ck.onclick=()=>toggleDone(t);
   const ta=el("textarea");ta.value=t.title||"";ta.rows=1;
-  ta.oninput=()=>{ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";};
+  ta.oninput=()=>autoGrow(ta);
   ta.onblur=async()=>{const v=ta.value.trim();if(v&&v!==t.title){await patchTask(t,{title:v});rebuildTags();renderTagChips();}};
   ta.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ta.blur();}};
   const starB=el("button","star"+(t.importance==="high"?" on":""));starB.innerHTML=svg(IC.star,t.importance==="high"?"fill":"");starB.onclick=()=>toggleStar(t);
   head.appendChild(ck);head.appendChild(ta);head.appendChild(starB);b.appendChild(head);
-  setTimeout(()=>{ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";},0);
+  sizeTitleSoon(ta);
 
   // Focus lists
   const fSec=el("div","dsection");
@@ -1250,14 +1464,16 @@ function fillDetail(t){
   // Timer
   const running=activeTimer&&activeTimer.taskId===t.id;
   const tSec=el("div","dsection");
-  const tRow=el("div","drow");
-  tRow.innerHTML=`<span class="ic">${svg(IC.clock)}</span><div class="rlabel">Time tracking<small>Logs elapsed time into notes when stopped or completed</small></div>`;
+  const tRow=el("div","drow noline");
+  const totMs=taskTotalMs(t.id);
+  tRow.innerHTML=`<span class="ic">${svg(IC.clock)}</span><div class="rlabel">Time tracking<small>${totMs>=1000?fmtDur(totMs)+" logged so far":"Logs elapsed time into notes when stopped"}</small></div>`;
   const tval=el("span","tval");tval.id="detailTimerVal";tval.textContent=running?fmtClock(elapsedMs()):"";
-  const addT=el("button","btn2 sm");addT.textContent="＋ Add time";addT.title="Log time manually";addT.onclick=()=>openAddTime(t);
+  tRow.appendChild(tval);tSec.appendChild(tRow);
+  const tAct=el("div","dactions");                    // buttons on their own wrapping line
   const tbtn=el("button","btn2"+(running?"":" primary"));tbtn.textContent=running?"Stop":"Start timer";
   tbtn.onclick=()=>{running?stopTimer(true):startTimer(t);};
-  tRow.appendChild(tval);tRow.appendChild(addT);tRow.appendChild(tbtn);
-  tSec.appendChild(tRow);b.appendChild(tSec);
+  const addT=el("button","btn2 sm");addT.textContent="＋ Add time";addT.title="Log time manually";addT.onclick=()=>openAddTime(t);
+  tAct.append(tbtn,addT);tSec.appendChild(tAct);b.appendChild(tSec);
 
   // steps
   const sSec=el("div","dsection");const sWrap=el("div","steps");
@@ -1278,7 +1494,12 @@ function fillDetail(t){
     i.onchange=()=>patchTask(t,{dueDateTime:i.value?{dateTime:i.value+"T00:00:00.0000000",timeZone:"UTC"}:null});return i;})(),
     dueISO?()=>patchTask(t,{dueDateTime:null}):null));
   sec.appendChild(dRow(IC.bell,"Remind me",(()=>{const i=el("input");i.type="datetime-local";i.value=remISO;
-    i.onchange=()=>patchTask(t,i.value?{isReminderOn:true,reminderDateTime:{dateTime:i.value+":00.0000000",timeZone:TZ}}:{isReminderOn:false});return i;})(),
+    i.onchange=()=>{
+      const g=localInputToGraph(i.value);
+      if(g){if(!remISO||i.value!==remISO)patchTask(t,{isReminderOn:true,reminderDateTime:g});}
+      else if(remISO)patchTask(t,{isReminderOn:false});      // emptied → clear; ignore partial input on a task with no reminder
+      else i.value="";
+    };return i;})(),
     remISO?()=>patchTask(t,{isReminderOn:false}):null));
   sec.appendChild(dRow(IC.repeat,"Repeat",(()=>{const s=el("select");
     [["none","Never"],["daily","Daily"],["weekdays","Weekdays"],["weekly","Weekly"],["monthly","Monthly"],["yearly","Yearly"]].forEach(([v,l])=>{const o=el("option",null,l);o.value=v;s.appendChild(o);});
@@ -1289,9 +1510,11 @@ function fillDetail(t){
   const nWrap=el("div");
   const nHead=el("div","notehead");
   nHead.appendChild(el("span",null,"Notes"));
+  const micBtn=el("button","notebtn micbtn");micBtn.innerHTML=svg(IC.mic)+"<span>Speak</span>";
+  micBtn.title="Dictate a note";micBtn.onclick=()=>openVoiceNote(t);
   const addBtn=el("button","notebtn");addBtn.innerHTML=svg(IC.plus)+"<span>Add entry</span>";addBtn.onclick=()=>openNoteEntry(t);
   const expBtn=el("button","notebtn");expBtn.innerHTML=svg(IC.expand)+"<span>Expand</span>";expBtn.onclick=()=>openNoteExpand(t);
-  nHead.appendChild(addBtn);nHead.appendChild(expBtn);
+  nHead.appendChild(micBtn);nHead.appendChild(addBtn);nHead.appendChild(expBtn);
   const view=el("div","notesview");view.setAttribute("data-empty","No notes yet — “Add entry” stamps the date & time. Tap to type.");
   const bt=bodyText(t);view.innerHTML=bt?linkify(bt):"";view.title="Tap to edit · links open on tap";
   view.onclick=e=>{if(e.target.closest("a"))return;                    // let 📍/links open
@@ -1303,6 +1526,99 @@ function fillDetail(t){
   nWrap.appendChild(nHead);nWrap.appendChild(view);
   b.appendChild(nWrap);
 }
+/* ---------------- voice notes (on-device dictation via the Web Speech API) ----------
+   Chrome/Edge on Android + desktop. Needs a secure context (https or localhost) and
+   mic permission; the recogniser itself is the browser's, no key or upload of ours. */
+function voiceReady(){
+  if(!SR){toast("Voice typing needs Chrome or Edge");return false;}
+  if(!window.isSecureContext){toast("Voice typing needs the https address");return false;}
+  return true;
+}
+function dictate(on){                       // on:{partial,final,error,end} → returns a stop() handle
+  const r=new SR();
+  r.lang=navigator.language||"en-US";
+  r.continuous=true;                        // Android often ends on its own anyway — handled below
+  r.interimResults=true;
+  let finalTxt="",stopped=false;
+  r.onresult=e=>{
+    let interim="";
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const res=e.results[i];
+      if(res.isFinal)finalTxt=(finalTxt?finalTxt+" ":"")+res[0].transcript.trim();
+      else interim+=res[0].transcript;
+    }
+    on.partial&&on.partial(finalTxt,interim.trim());
+  };
+  r.onerror=e=>{stopped=true;on.error&&on.error(e.error||"error");};
+  r.onend=()=>{
+    if(stopped)return;
+    stopped=true;on.end&&on.end(finalTxt.trim());
+  };
+  try{r.start();}catch(e){on.error&&on.error("start");}
+  return{stop(){if(stopped){on.end&&on.end(finalTxt.trim());return;}try{r.stop();}catch(_){ }},
+         abort(){stopped=true;try{r.abort();}catch(_){ }},
+         text(){return finalTxt.trim();}};
+}
+/* Tap mic → speak → tap stop. The transcript is filed straight onto the task as a
+   timestamped note; no typing, no extra confirm step. */
+function openVoiceNote(t){
+  if(!voiceReady())return;
+  showModal((card,close)=>{
+    card.classList.add("voicecard");
+    card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
+    const sub=el("div","vstate","Listening…");
+    const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop and save";
+    const view=el("div","vtext");view.setAttribute("data-empty","Start talking — your words appear here.");
+    card.append(mic,sub,view);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Discard");
+    const save=el("button","btn2 primary","Save note");
+    foot.append(cancel,save);card.appendChild(foot);
+
+    let handle=null,done=false;
+    const paint=(fin,int)=>{view.innerHTML="";
+      if(fin)view.appendChild(document.createTextNode(fin));
+      if(int){const s=el("span","interim"," "+int);view.appendChild(s);}
+      view.scrollTop=view.scrollHeight;};
+    const finish=txt=>{
+      if(done)return;done=true;
+      const v=(txt||"").trim();
+      if(v){prependNote(t,v);toast("Voice note added");}
+      else toast("Nothing was picked up");
+      close();
+    };
+    const stopRec=()=>{sub.textContent="Saving…";mic.classList.remove("rec");if(handle)handle.stop();else finish(view.textContent);};
+    handle=dictate({
+      partial:paint,
+      end:txt=>finish(txt),
+      error:code=>{
+        if(done)return;done=true;
+        toast(code==="not-allowed"||code==="service-not-allowed"?"Microphone permission was blocked":"Couldn't hear anything ("+code+")");
+        close();
+      }
+    });
+    mic.onclick=stopRec;
+    save.onclick=stopRec;
+    cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
+  });
+}
+/* Mic that dictates into a textarea (used in the typed-note modal). */
+function attachMic(btn,ta){
+  let handle=null,base="";
+  btn.onclick=()=>{
+    if(handle){handle.stop();return;}
+    if(!voiceReady())return;
+    base=ta.value?ta.value.replace(/\s+$/,"")+" ":"";
+    btn.classList.add("rec");btn.querySelector("span").textContent="Stop";
+    const reset=()=>{handle=null;btn.classList.remove("rec");btn.querySelector("span").textContent="Speak";};
+    handle=dictate({
+      partial:(f,i)=>{ta.value=base+f+(i?" "+i:"");},
+      end:txt=>{ta.value=(base+txt).trim();reset();ta.focus();},
+      error:c=>{reset();toast(c==="not-allowed"?"Microphone permission was blocked":"Voice typing stopped");}
+    });
+  };
+}
+
 function nowStamp(){return new Date().toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}
 const NOTE_DIV="────────────────────";
 const LS_PEOPLE="smarttodo.notepeople.v1";
@@ -1340,6 +1656,9 @@ function openNoteEntry(t){
     card.appendChild(who);card.appendChild(dl);
     // note text
     const ta=el("textarea","mnote");ta.placeholder="Type your note…  (Ctrl/⌘+Enter to save)";card.appendChild(ta);
+    const micRow=el("div","locrow");
+    const micB=el("button","notebtn micbtn");micB.innerHTML=svg(IC.mic)+"<span>Speak</span>";
+    attachMic(micB,ta);micRow.appendChild(micB);card.appendChild(micRow);
     // optional location stamp (default off)
     let loc=null;
     const locRow=el("div","locrow");
@@ -1415,7 +1734,9 @@ function wireUi(){
   $("#fStatus").onchange=e=>{filter.status=e.target.value;activeSaved=null;applyAndRender();};
   $("#fText").oninput=e=>{filter.text=e.target.value;activeSaved=null;applyAndRender();};
   $("#tagMode").onclick=()=>{tagModeAll=!tagModeAll;activeSaved=null;applyAndRender();};
-  $("#sortBy").onchange=e=>{sortKey=e.target.value;applyAndRender();};
+  $("#sortBy").onchange=e=>{sortKey=e.target.value;localStorage.setItem(LS_SORT,sortKey);
+    if(sortKey==="manual")toast(IS_MOBILE?"Drag with the ⣿ handle, or use ↑ ↓":"Drag tasks to reorder");
+    applyAndRender();};
   $("#clearBtn").onclick=()=>{focusView=false;filter=defaultFilter();tagModeAll=true;starOnly=false;activeSaved=null;setTitle("All open");applyAndRender();};
   $("#saveBtn").onclick=saveCurrent;
   $("#filterBtn").onclick=()=>$("#filterPop").classList.contains("open")?closePop():openPop();
