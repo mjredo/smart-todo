@@ -772,7 +772,9 @@ function timerBtn(t){
   return b;
 }
 let _dragId=null,_dragEndAt=0;
-function wireDrag(row,t){
+/* commit(idsInNewOrder) decides where the new sequence is stored — the global
+   manual order in the task list, or the focus list's own taskIds. */
+function wireDrag(row,t,commit){
   row.draggable=true;
   row.ondragstart=e=>{_dragId=t.id;row.classList.add("dragging");
     e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",t.id);}catch(_){}};
@@ -791,9 +793,9 @@ function wireDrag(row,t){
     if(!src)return;
     const r=row.getBoundingClientRect(),after=(e.clientY-r.top)>r.height/2;
     box.insertBefore(src,after?row.nextSibling:row);
-    applyVisibleOrder([...box.children].map(c=>c.dataset.id).filter(Boolean));
-    applyAndRender();};
+    commit([...box.children].map(c=>c.dataset.id).filter(Boolean));};
 }
+function gripEl(){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder";return g;}
 function renderTasks(rows){
   const box=$("#taskList");box.innerHTML="";
   if(!rows.length){box.innerHTML=`<div class="empty">${svg(IC.inbox)}<div>No tasks match this view.</div></div>`;return;}
@@ -802,7 +804,7 @@ function renderTasks(rows){
     const done=t.status==="completed";
     const row=el("div","task"+(done?" done":"")+(t._pending?" _pend":""));
     row.dataset.id=t.id;
-    if(manual)wireDrag(row,t);
+    if(manual)wireDrag(row,t,ids=>{applyVisibleOrder(ids);applyAndRender();});
     const ck=el("button","ck");ck.innerHTML=svg(IC.check);ck.title=done?"Mark not done":"Mark done";
     ck.onclick=e=>{e.stopPropagation();toggleDone(t);};
     const body=el("div","tbody");
@@ -826,7 +828,7 @@ function renderTasks(rows){
     const pin=el("button","pinbtn"+(anyFocus(t)?" on":""));pin.innerHTML=svg(IC.pin,anyFocus(t)?"fill":"");
     pin.title="Add to a focus list";pin.onclick=e=>{e.stopPropagation();openFocusMenu(pin,t);};
     row.appendChild(ck);
-    if(manual&&!IS_MOBILE){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder";row.appendChild(g);}
+    if(manual&&!IS_MOBILE)row.appendChild(gripEl());
     row.appendChild(body);
     if(!done)row.appendChild(timerBtn(t));
     row.appendChild(star);row.appendChild(pin);
@@ -983,16 +985,17 @@ function ensureRanked(rows){                            // give newly-seen tasks
   if(added)saveOrder();
 }
 /* Reorder within a filtered view: the visible tasks keep the slots they already
-   occupy in the global order, but get re-dealt into the new sequence. Tasks that
-   aren't on screen never move. */
-function applyVisibleOrder(ids){
+   occupy in the stored order, but get re-dealt into the new sequence. Anything not
+   on screen (filtered out, or an id whose task is gone) never moves. */
+function resequence(arr,ids){
   const want=new Set(ids), slots=[];
-  ORDER.forEach((id,i)=>{if(want.has(id))slots.push(i);});
-  for(const id of ids)if(!_rank.has(id)){ORDER.push(id);slots.push(ORDER.length-1);}
+  arr.forEach((id,i)=>{if(want.has(id))slots.push(i);});
+  for(const id of ids)if(!arr.includes(id)){arr.push(id);slots.push(arr.length-1);}
   slots.sort((a,b)=>a-b);
-  ids.forEach((id,k)=>{if(slots[k]!==undefined)ORDER[slots[k]]=id;});
-  reindexOrder();saveOrder();
+  ids.forEach((id,k)=>{if(slots[k]!==undefined)arr[slots[k]]=id;});
+  return arr;
 }
+function applyVisibleOrder(ids){resequence(ORDER,ids);reindexOrder();saveOrder();}
 function moveInOrder(id,dir,ids){                       // up/down buttons (touch-friendly alternative to dragging)
   const i=ids.indexOf(id),j=i+dir;
   if(i<0||j<0||j>=ids.length)return;
@@ -1096,7 +1099,13 @@ function deleteFocusList(id){
   FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();renderFocusNav();updateNavCounts();
   if(activeFocusId===id){focusView=false;activeFocusId=null;filter=defaultFilter();starOnly=false;setTitle("All open");applyAndRender();}
 }
-function moveInFocus(id,taskId,dir){const l=focusById(id);if(!l)return;const a=l.taskIds,i=a.indexOf(taskId),j=i+dir;if(i<0||j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];saveFocus();renderFocusView();}
+function moveInFocus(id,taskId,dir){         // works on what's on screen, so stale ids can't swallow a move
+  const l=focusById(id);if(!l)return;
+  const ids=focusListTasks(id).map(t=>t.id),i=ids.indexOf(taskId),j=i+dir;
+  if(i<0||j<0||j>=ids.length)return;
+  [ids[i],ids[j]]=[ids[j],ids[i]];
+  resequence(l.taskIds,ids);saveFocus();renderFocusView();
+}
 function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();closeSide();}
 
 function renderFocusNav(){
@@ -1137,8 +1146,15 @@ function renderFocusView(){
     updateNavCounts();return;
   }
   const today=startOfToday();
+  const ids=rows.map(t=>t.id);
   rows.forEach((t,idx)=>{
     const row=el("div","task"+(t.status==="completed"?" done":"")+(t._pending?" _pend":""));
+    row.dataset.id=t.id;
+    /* a focus list is hand-ordered by definition, so dragging is always on here —
+       it reorders this list's own taskIds, never the global "My order" */
+    wireDrag(row,t,newIds=>{
+      const fl=focusById(activeFocusId);if(!fl)return;
+      resequence(fl.taskIds,newIds);saveFocus();renderFocusView();});
     const ck=el("button","ck");ck.innerHTML=svg(IC.check);ck.onclick=e=>{e.stopPropagation();toggleDone(t);};
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
@@ -1153,10 +1169,12 @@ function renderFocusView(){
     const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";dn.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,1);};
     const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Remove from this list";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();toggleFocusMember(t,activeFocusId);};
     ctrl.appendChild(up);ctrl.appendChild(dn);ctrl.appendChild(rm);
-    row.appendChild(ck);row.appendChild(body);
+    row.appendChild(ck);
+    if(!IS_MOBILE)row.appendChild(gripEl());
+    row.appendChild(body);
     if(t.status!=="completed")row.appendChild(timerBtn(t));
     row.appendChild(ctrl);
-    row.onclick=()=>openDetail(t);
+    row.onclick=()=>{if(Date.now()-_dragEndAt<250)return;openDetail(t);};
     box.appendChild(row);
   });
   updateNavCounts();
