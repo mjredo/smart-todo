@@ -619,7 +619,7 @@ const TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
 let account,LISTS=[],TASKS=[],TAGS=[];
 let filter=defaultFilter(), activeSaved=null, tagModeAll=true, sortKey="due", detailTask=null;
 let cloudOK=false, focusView=false, activeFocusId=null, FOCUS={version:2,lists:[]};
-let activeTimer=null, _timerInt=null, TIMELOG=[];
+let activeTimers={}, _timerInt=null, TIMELOG=[];   // multiple concurrent timers: {taskId: startedAtMs}
 const LS_FOCUS="smarttodo.focus.v1";
 const LS_TIMER="smarttodo.timer.v1";
 const LS_TIMELOG="smarttodo.timelog.v1";
@@ -706,7 +706,7 @@ async function gfetch(path,opts){
 
 /* ---------------- data ---------------- */
 async function start(){
-  show("loading"); wireUi(); loadOutbox(); loadTimer();
+  show("loading"); wireUi(); loadOutbox(); loadTimers();
   try{
     await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder();
     offline=false; cacheData(); markSynced();
@@ -722,7 +722,7 @@ async function start(){
   outbox.forEach(applyOpLocal);                  // re-apply any unsynced local changes on top
   reindexOrder(); sortKey=localStorage.getItem(LS_SORT)||sortKey;
   renderNav(); renderFilterControls(); applyAndRender();
-  show("app"); updateNetUI(); updateTimerUI(); if(activeTimer)ensureTimerTick();
+  show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
@@ -851,16 +851,17 @@ function applyAndRender(){
 
 /* ---------------- task list render ---------------- */
 function taskTotalMs(id){let ms=0;for(const r of TIMELOG)if(r.taskId===id)ms+=r.ms||0;return ms;}
-function runningPill(){                                  // live-ticking elapsed chip
+function runningPill(t){                                 // live-ticking elapsed chip, tied to its own task
   const p=el("span","pill running");p.innerHTML=svg(IC.clock);
-  p.appendChild(el("span","js-elapsed",fmtClock(elapsedMs())));return p;
+  const s=el("span","js-elapsed",fmtClock(elapsedMsFor(t.id)));s.dataset.tid=t.id;
+  p.appendChild(s);return p;
 }
 function timerBtn(t){
-  const on=!!activeTimer&&activeTimer.taskId===t.id;
+  const on=timerOn(t.id);
   const b=el("button","tmr"+(on?" on":""));
   b.innerHTML=svg(on?IC.stop:IC.play,"fill");
   b.title=on?"Stop timer":"Start timer";
-  b.onclick=e=>{e.stopPropagation();on?stopTimer(true):startTimer(t);};
+  b.onclick=e=>{e.stopPropagation();on?stopTimer(t.id,true):startTimer(t);};
   return b;
 }
 let _dragId=null,_dragEndAt=0;
@@ -905,7 +906,7 @@ function renderTasks(rows){
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
     const meta=el("div","tmeta");
     if(t._pending)meta.appendChild(pill("not synced yet",null,IC.repeat));
-    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(runningPill());
+    if(timerOn(t.id))meta.appendChild(runningPill(t));
     const tot=taskTotalMs(t.id);
     if(tot>=1000)meta.appendChild(pill(fmtDur(tot),"total",IC.chart));
     if(!filter.lists.length||filter.lists.length>1) meta.appendChild(pill(t._listName,"list"));
@@ -1262,7 +1263,7 @@ function renderFocusView(){
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
     const meta=el("div","tmeta");
-    if(activeTimer&&activeTimer.taskId===t.id)meta.appendChild(runningPill());
+    if(timerOn(t.id))meta.appendChild(runningPill(t));
     const tot=taskTotalMs(t.id);if(tot>=1000)meta.appendChild(pill(fmtDur(tot),"total",IC.chart));
     meta.appendChild(pill(t._listName,"list"));
     const d=taskDue(t);if(d){const over=d<today,tod=d.getTime()===today.getTime();meta.appendChild(pill(fmtDate(d),over?"due-over":(tod?"due-today":""),IC.cal));}
@@ -1308,24 +1309,35 @@ function openFocusMenu(anchor,t){
 function closeMenuOutside(e){const m=$(".menu");if(m&&!m.contains(e.target))closeMenu();}
 function closeMenu(){const m=$(".menu");if(m)m.remove();document.removeEventListener("mousedown",closeMenuOutside);}
 
-/* ---------------- task timer ---------------- */
-function loadTimer(){try{activeTimer=JSON.parse(localStorage.getItem(LS_TIMER)||"null");}catch{activeTimer=null;}}
-function saveTimerState(){if(activeTimer)localStorage.setItem(LS_TIMER,JSON.stringify(activeTimer));else localStorage.removeItem(LS_TIMER);}
-function elapsedMs(){return activeTimer?Date.now()-activeTimer.startedAt:0;}
+/* ---------------- task timers (multiple, concurrent) ----------------
+   activeTimers maps taskId -> startedAt(ms). Each task runs its own timer,
+   independent of the others; the live elapsed shows in that task's card.   */
+function loadTimers(){
+  try{const raw=JSON.parse(localStorage.getItem(LS_TIMER)||"null");
+    if(!raw)activeTimers={};
+    else if(raw.taskId&&raw.startedAt)activeTimers={[raw.taskId]:raw.startedAt};  // migrate the old single-timer shape
+    else activeTimers=raw;
+  }catch{activeTimers={};}
+}
+function saveTimers(){if(Object.keys(activeTimers).length)localStorage.setItem(LS_TIMER,JSON.stringify(activeTimers));else localStorage.removeItem(LS_TIMER);}
+function anyTimer(){return Object.keys(activeTimers).length>0;}
+function timerCount(){return Object.keys(activeTimers).length;}
+function timerOn(id){return !!activeTimers[id];}
+function elapsedMsFor(id){return activeTimers[id]?Date.now()-activeTimers[id]:0;}
 function fmtDur(ms){const s=Math.max(0,Math.round(ms/1000)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h?h+"h "+m+"m":(m?(ss?m+"m "+ss+"s":m+"m"):ss+"s");}
 function fmtClock(ms){const s=Math.max(0,Math.floor(ms/1000)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60,p=n=>String(n).padStart(2,"0");return (h?h+":":"")+p(m)+":"+p(ss);}
 function startTimer(t){
-  if(activeTimer){if(activeTimer.taskId===t.id)return;stopTimer(true);}   // one timer at a time; stopping logs the previous
-  activeTimer={taskId:t.id,startedAt:Date.now()};saveTimerState();
+  if(activeTimers[t.id])return;                          // already timing this task
+  activeTimers[t.id]=Date.now();saveTimers();
   updateTimerUI();ensureTimerTick();applyAndRender();if(detailTask===t)fillDetail(t);
   toast("Timer started");
 }
-function stopTimer(log){
-  if(!activeTimer)return null;
-  const id=activeTimer.taskId,startMs=activeTimer.startedAt,endMs=Date.now(),ms=endMs-startMs;
-  const started=new Date(startMs),ended=new Date(endMs);
+function stopTimer(id,log){
+  const startMs=activeTimers[id];if(!startMs)return null;
+  const endMs=Date.now(),ms=endMs-startMs,started=new Date(startMs),ended=new Date(endMs);
   const t=TASKS.find(x=>x.id===id);
-  activeTimer=null;saveTimerState();updateTimerUI();
+  delete activeTimers[id];saveTimers();updateTimerUI();
+  if(!anyTimer()&&_timerInt){clearInterval(_timerInt);_timerInt=null;}
   if(ms>=1000)logTime(id,t?t.title:"",t?t._listName:"",startMs,endMs,false);   // structured log for summaries
   if(log&&t&&ms>=1000){
     const range=started.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+"–"+ended.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
@@ -1337,18 +1349,24 @@ function stopTimer(log){
 function ensureTimerTick(){
   if(_timerInt)return;
   _timerInt=setInterval(()=>{
-    if(!activeTimer){clearInterval(_timerInt);_timerInt=null;return;}
+    if(!anyTimer()){clearInterval(_timerInt);_timerInt=null;return;}
     updateTimerUI();
-    const v=$("#detailTimerVal");if(v)v.textContent=fmtClock(elapsedMs());
-    const s=fmtClock(elapsedMs());
-    $$(".js-elapsed").forEach(e=>{e.textContent=s;});      // live chips in the task list
+    $$(".js-elapsed").forEach(e=>{const id=e.dataset.tid;if(id&&activeTimers[id])e.textContent=fmtClock(elapsedMsFor(id));});   // each card ticks with its own time
+    const v=$("#detailTimerVal");if(v&&detailTask&&activeTimers[detailTask.id])v.textContent=fmtClock(elapsedMsFor(detailTask.id));
   },1000);
 }
 function updateTimerUI(){
   const chip=$("#timerChip");if(!chip)return;
-  if(activeTimer){const t=TASKS.find(x=>x.id===activeTimer.taskId);chip.style.display="inline-flex";
-    chip.innerHTML=`${svg(IC.clock)}<span>${fmtClock(elapsedMs())}</span>`;chip.title=(t?t.title+" — ":"")+"tap to open";}
-  else chip.style.display="none";
+  const ids=Object.keys(activeTimers);
+  if(!ids.length){chip.style.display="none";return;}
+  chip.style.display="inline-flex";
+  if(ids.length===1){const t=TASKS.find(x=>x.id===ids[0]);
+    chip.innerHTML=`${svg(IC.clock)}<span class="js-elapsed" data-tid="${ids[0]}">${fmtClock(elapsedMsFor(ids[0]))}</span>`;
+    chip.title=(t?t.title+" — ":"")+"tap to open";
+  }else{
+    chip.innerHTML=`${svg(IC.clock)}<span>${ids.length} running</span>`;
+    chip.title=ids.length+" timers running — tap to open the most recent";
+  }
 }
 
 /* ---------------- time log (structured, synced) + summaries ---------------- */
@@ -1486,7 +1504,7 @@ function suggestName(){
 /* patch/complete/star/add all flow through the outbox: optimistic locally, synced now if online, queued if not */
 function patchTask(t,body){queueOp({type:"patch",listId:t._listId,taskId:t.id,body});applyAndRender();if(detailTask===t)fillDetail(t);}
 function toggleDone(t){const to=t.status==="completed"?"notStarted":"completed";
-  if(to==="completed"&&activeTimer&&activeTimer.taskId===t.id)stopTimer(true);   // completing stops & logs the timer
+  if(to==="completed"&&timerOn(t.id))stopTimer(t.id,true);   // completing stops & logs this task's timer
   patchTask(t,{status:to});toast(to==="completed"?"Completed ✓":"Reopened");}
 function toggleStar(t){patchTask(t,{importance:t.importance==="high"?"normal":"high"});}
 function addTask(){
@@ -1649,7 +1667,7 @@ function updateBulkBar(){
 function bulkComplete(){
   const ts=selectedTasks();if(!ts.length)return;
   const allDone=ts.every(t=>t.status==="completed"),want=allDone?"notStarted":"completed";
-  ts.forEach(t=>{if(t.status!==want){if(want==="completed"&&activeTimer&&activeTimer.taskId===t.id)stopTimer(true);patchTask(t,{status:want});}});
+  ts.forEach(t=>{if(t.status!==want){if(want==="completed"&&timerOn(t.id))stopTimer(t.id,true);patchTask(t,{status:want});}});
   toast((allDone?"Reopened ":"Completed ")+ts.length);exitSelect();
 }
 function bulkStar(){
@@ -1807,16 +1825,16 @@ function fillDetail(t){
   fSec.appendChild(fchips);b.appendChild(fSec);
 
   // Timer
-  const running=activeTimer&&activeTimer.taskId===t.id;
+  const running=timerOn(t.id);
   const tSec=el("div","dsection");
   const tRow=el("div","drow noline");
   const totMs=taskTotalMs(t.id);
   tRow.innerHTML=`<span class="ic">${svg(IC.clock)}</span><div class="rlabel">Time tracking<small>${totMs>=1000?fmtDur(totMs)+" logged so far":"Logs elapsed time into notes when stopped"}</small></div>`;
-  const tval=el("span","tval");tval.id="detailTimerVal";tval.textContent=running?fmtClock(elapsedMs()):"";
+  const tval=el("span","tval");tval.id="detailTimerVal";tval.textContent=running?fmtClock(elapsedMsFor(t.id)):"";
   tRow.appendChild(tval);tSec.appendChild(tRow);
   const tAct=el("div","dactions");                    // buttons on their own wrapping line
   const tbtn=el("button","btn2"+(running?"":" primary"));tbtn.textContent=running?"Stop":"Start timer";
-  tbtn.onclick=()=>{running?stopTimer(true):startTimer(t);};
+  tbtn.onclick=()=>{running?stopTimer(t.id,true):startTimer(t);};
   const addT=el("button","btn2 sm");addT.textContent="＋ Add time";addT.title="Log time manually";addT.onclick=()=>openAddTime(t);
   tAct.append(tbtn,addT);tSec.appendChild(tAct);b.appendChild(tSec);
 
@@ -2245,7 +2263,9 @@ function wireUi(){
   $("#bulkMove").onclick=e=>bulkMove(e.currentTarget);
   $("#bulkDelete").onclick=bulkDelete;
   $("#newFocusBtn").onclick=()=>{const n=prompt("New focus list name:","Morning");if(n&&n.trim())enterFocus(newFocusList(n.trim()).id);};
-  $("#timerChip").onclick=()=>{if(activeTimer){const t=TASKS.find(x=>x.id===activeTimer.taskId);if(t)openDetail(t);}};
+  $("#timerChip").onclick=()=>{const ids=Object.keys(activeTimers);if(!ids.length)return;   // open the most recently started running task
+    let latest=ids[0];for(const id of ids)if(activeTimers[id]>activeTimers[latest])latest=id;
+    const t=TASKS.find(x=>x.id===latest);if(t)openDetail(t);};
   $("#summaryBtn").onclick=openSummary;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
   $("#menuBtn").onclick=openSide;
