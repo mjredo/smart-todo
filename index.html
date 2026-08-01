@@ -1962,10 +1962,13 @@ function voiceReady(){
   if(!whisperSupported()&&!SR){toast("Voice typing needs Chrome or Edge");return false;}
   return true;
 }
-/* Whisper is the preferred path; the Web Speech recogniser below is the offline fallback.
-   Whisper needs its model, so it can't be used on a device that has never downloaded it and
-   is currently offline — that's the one case where we drop back to live dictation. */
-function useWhisper(){return whisperSupported()&&(_asr||navigator.onLine!==false);}
+/* Reverted 2026-08-01: the browser's Web Speech recogniser is the PRIMARY transcriber again.
+   The Whisper (transformers.js/whisper-tiny.en) path was slower and less accurate than the
+   native recogniser — and no larger Whisper model is faster, so bigger ≠ better here. Web
+   Speech runs in real time on the device's own recogniser (fast, decent punctuation/caps on
+   Chrome/Edge desktop + Android). Whisper is kept only as a fallback for browsers with no
+   SpeechRecognition. To re-enable Whisper everywhere, restore the previous expression below. */
+function useWhisper(){return !SR && whisperSupported();}
 function dictate(on){                       // on:{partial,final,error,end} → returns a stop() handle
   const r=new SR();
   r.lang=navigator.language||"en-US";
@@ -2124,8 +2127,9 @@ function openVoiceNote(t){
       .catch(e=>hardFail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
   });
 }
-/* Offline fallback: the old live Web Speech flow, no punctuation but no model needed.
-   After you stop, the text drops into an editable box to review/fix before Save. */
+/* PRIMARY transcriber (since the 2026-08-01 revert): the browser's live Web Speech recogniser
+   — real-time, fast, no model download. After you stop, the text drops into an editable box to
+   review/fix before Save. */
 function openVoiceNoteLive(t){
   showModal((card,close)=>{
     card.classList.add("voicecard");
