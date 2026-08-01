@@ -333,6 +333,8 @@
   .btn2:hover{border-color:var(--accent)}
   .btn2.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .btn2.danger{background:var(--red);color:#fff;border-color:var(--red)}
+  .btn2.refine{border-color:var(--accent);color:var(--accent)}
+  .btn2.refine svg{width:15px;height:15px}
   .btn2.danger:hover{border-color:var(--red);filter:brightness(1.05)}
   .btn2:disabled{opacity:.45;pointer-events:none}
   /* duplicate review modal */
@@ -2129,7 +2131,9 @@ function openVoiceNote(t){
 }
 /* PRIMARY transcriber (since the 2026-08-01 revert): the browser's live Web Speech recogniser
    — real-time, fast, no model download. After you stop, the text drops into an editable box to
-   review/fix before Save. */
+   review/fix before Save. We ALSO record the mic audio in parallel so the review screen can
+   offer an optional "Refine with Whisper" pass (better punctuation) on that clip — opt-in, so
+   the ~40 MB model only downloads if you tap it. */
 function openVoiceNoteLive(t){
   showModal((card,close)=>{
     card.classList.add("voicecard");
@@ -2142,10 +2146,14 @@ function openVoiceNoteLive(t){
     card.append(mic,sub,view,ta,hint);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
+    const refineBtn=el("button","btn2 refine",svg(IC.repeat)+"Refine with Whisper");refineBtn.style.display="none";
     const save=el("button","btn2 primary","Save note");save.disabled=true;
-    foot.append(cancel,save);card.appendChild(foot);
+    foot.append(cancel,refineBtn,save);card.appendChild(foot);
 
-    let handle=null,done=false,reviewing=false;
+    let handle=null,done=false,reviewing=false,rec=null,recBlob=null,preRefine=null;
+    // record the audio alongside dictation (best-effort — if it fails, Refine just won't offer)
+    recordMic().then(h=>{if(done){try{h.cancel();}catch(_){}return;}rec=h;}).catch(()=>{rec=null;});
+    const releaseRec=()=>{if(rec){try{rec.cancel();}catch(_){}rec=null;}};
     const paint=(fin,int)=>{view.innerHTML="";
       if(fin)view.appendChild(document.createTextNode(fin));
       if(int){const s=el("span","interim"," "+int);view.appendChild(s);}
@@ -2155,8 +2163,21 @@ function openVoiceNoteLive(t){
       mic.style.display="none";view.style.display="none";ta.style.display="";hint.style.display="";
       ta.value=(txt||"").trim();sub.textContent=ta.value?"Review":"No speech — type your note";
       save.disabled=false;ta.focus();const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
+      if(rec){rec.stop().then(b=>{recBlob=b;if(b&&b.size&&whisperSupported())refineBtn.style.display="";}).catch(()=>{});rec=null;}
     };
-    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
+    const doRefine=async()=>{
+      if(!recBlob)return;refineBtn.disabled=true;
+      const restore=()=>{refineBtn.disabled=false;refineBtn.innerHTML=svg(IC.repeat)+(preRefine!==null?"Undo refine":"Refine with Whisper");refineBtn.onclick=preRefine!==null?undoRefine:doRefine;};
+      refineBtn.innerHTML="Refining…";
+      try{
+        const txt=await whisperTranscribe(recBlob,p=>{refineBtn.innerHTML="Loading model "+p+"%";});
+        if(txt){preRefine=ta.value;ta.value=txt;hint.textContent="Refined with Whisper — edit if needed, or undo.";}
+        else toast("Whisper heard no speech in that clip");
+      }catch(e){console.warn("Whisper refine failed",e);toast("Couldn't run Whisper — check your connection");}
+      restore();
+    };
+    const undoRefine=()=>{if(preRefine!==null){ta.value=preRefine;preRefine=null;}hint.textContent="Review & edit, then Save note.";refineBtn.innerHTML=svg(IC.repeat)+"Refine with Whisper";refineBtn.onclick=doRefine;ta.focus();};
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;releaseRec();
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
     const stopRec=()=>{if(reviewing)return;sub.textContent="Finishing…";mic.classList.remove("rec");if(handle)handle.stop();else toReview(view.textContent);};
     handle=dictate({
@@ -2169,8 +2190,9 @@ function openVoiceNoteLive(t){
       }
     });
     mic.onclick=stopRec;
+    refineBtn.onclick=doRefine;
     save.onclick=()=>{reviewing?commit():stopRec();};
-    cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
+    cancel.onclick=()=>{done=true;if(handle)handle.abort();releaseRec();close();};
   });
 }
 /* Mic that dictates into a textarea (used in the typed-note modal). Whisper records then
