@@ -1160,14 +1160,30 @@ async function flushOutbox(){
     const op=outbox[0];
     try{
       if(op.type==="add"){
+        const wantTitle=(op.body&&op.body.title||"").trim();   // self-heal: if this add already produced duplicates on
+        const dups=wantTitle?TASKS.filter(t=>!String(t.id).startsWith("tmp_")&&t._listId===op.listId&&(t.title||"").trim()===wantTitle):[];
+        if(dups.length>=2){                                    // a prior wedged flush, adopt the newest instead of POSTing yet another
+          const c=dups.slice().sort((a,b)=>Date.parse(b.createdDateTime||0)-Date.parse(a.createdDateTime||0))[0];
+          try{for(const o of outbox)if(o!==op&&o.taskId===op.tempId)o.taskId=c.id;
+            (FOCUS&&FOCUS.lists||[]).forEach(l=>{const i=l.taskIds.indexOf(op.tempId);if(i>=0)l.taskIds[i]=c.id;});saveFocus();
+            const ti=TASKS.findIndex(t=>t.id===op.tempId);if(ti>=0)TASKS.splice(ti,1);
+            if(detailTask&&detailTask.id===op.tempId)detailTask=c;}catch(_){}
+          outbox.shift();saveOutbox();continue;
+        }
         const c=await gfetch(`/me/todo/lists/${op.listId}/tasks`,{method:"POST",body:JSON.stringify(op.body)});
-        const L=LISTS.find(l=>l.id===op.listId);c._listId=op.listId;c._listName=L?L.displayName:"";
-        const idx=TASKS.findIndex(t=>t.id===op.tempId);const keep=idx>=0?TASKS[idx].checklistItems:[];
-        c.checklistItems=(c.checklistItems&&c.checklistItems.length)?c.checklistItems:(keep||[]);
-        if(idx>=0)TASKS[idx]=c;else TASKS.push(c);
-        for(const o of outbox)if(o!==op&&o.taskId===op.tempId)o.taskId=c.id;    // re-point later ops
-        const fi=FOCUS.indexOf(op.tempId);if(fi>=0){FOCUS[fi]=c.id;saveFocus();}
-        if(detailTask&&detailTask.id===op.tempId)detailTask=c;
+        /* The task now EXISTS on the server. Everything below is best-effort bookkeeping —
+           it must never throw out of this block, or the op wouldn't be shifted and the next
+           flush would POST a DUPLICATE. (A stale FOCUS.indexOf here once did exactly that.) */
+        try{
+          const L=LISTS.find(l=>l.id===op.listId);c._listId=op.listId;c._listName=L?L.displayName:"";
+          const idx=TASKS.findIndex(t=>t.id===op.tempId);const keep=idx>=0?TASKS[idx].checklistItems:[];
+          c.checklistItems=(c.checklistItems&&c.checklistItems.length)?c.checklistItems:(keep||[]);
+          if(idx>=0)TASKS[idx]=c;else TASKS.push(c);
+          for(const o of outbox)if(o!==op&&o.taskId===op.tempId)o.taskId=c.id;    // re-point later ops
+          let fch=false;(FOCUS&&FOCUS.lists||[]).forEach(l=>{const i=l.taskIds.indexOf(op.tempId);if(i>=0){l.taskIds[i]=c.id;fch=true;}});
+          if(fch)saveFocus();                                                     // FOCUS is {version,lists} now — reconcile per list
+          if(detailTask&&detailTask.id===op.tempId)detailTask=c;
+        }catch(reErr){console.warn("post-add reconcile failed (task was still created)",reErr);}
       }else if(op.type==="patch"){
         const t=TASKS.find(x=>x.id===op.taskId);const steps=t&&t.checklistItems;
         if(String(op.taskId).startsWith("tmp_")){break;}                        // its add hasn't synced yet — wait
