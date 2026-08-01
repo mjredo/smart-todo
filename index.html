@@ -2014,14 +2014,19 @@ function dictate(on){                       // on:{partial,final,error,end} → 
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
    Used only for the opt-in "Refine with Whisper" pass. The model is USER-SELECTABLE (Settings →
-   Voice model) so Manoj can trade download size / speed for accuracy per his need. Runs entirely
-   in the browser via transformers.js at fp32 on WebGPU (fp16 gave garbage on some GPUs); no API
-   key, no server, nothing leaves the device. Each model downloads once, then served from cache. */
+   Voice model) so Manoj can trade download size / speed for accuracy per his need. Runs in the
+   browser via transformers.js; no API key, no server, nothing leaves the device. Each model
+   downloads once, then served from cache. Per-model dtype: small ones use fp32 (fp16 gave garbage
+   on tiny); the big ones (medium/large) must use fp16/q4 or the download would be many GB. Large
+   is multilingual (no .en build) so whisperTranscribe passes a language hint for it. */
 const WHISPER_MODELS=[
-  {id:"Xenova/whisper-tiny.en",  tag:"tiny.en",  label:"Tiny",  size:"~40 MB",  note:"Fastest, smallest — least accurate"},
-  {id:"Xenova/whisper-base.en",  tag:"base.en",  label:"Base",  size:"~145 MB", note:"Balanced speed and accuracy"},
-  {id:"Xenova/whisper-small.en", tag:"small.en", label:"Small", size:"~900 MB", note:"Most accurate — big download, slower"}
+  {id:"Xenova/whisper-tiny.en",   tag:"tiny.en",   label:"Tiny",         dtype:"fp32", size:"~150 MB", note:"Fastest, smallest — least accurate"},
+  {id:"Xenova/whisper-base.en",   tag:"base.en",   label:"Base",         dtype:"fp32", size:"~290 MB", note:"Balanced speed and accuracy"},
+  {id:"Xenova/whisper-small.en",  tag:"small.en",  label:"Small",        dtype:"fp32", size:"~950 MB", note:"Accurate — good default"},
+  {id:"Xenova/whisper-medium.en", tag:"medium.en", label:"Medium",       dtype:"fp16", size:"~1.5 GB", note:"More accurate — very large, slower"},
+  {id:"onnx-community/whisper-large-v3-turbo", tag:"large-v3-turbo", label:"Large (turbo)", dtype:"q4", size:"~1 GB", note:"Highest accuracy — heavy, needs a strong device (experimental)"}
 ];
+function whisperCfg(){return WHISPER_MODELS.find(m=>m.id===WHISPER_MODEL)||WHISPER_MODELS[0];}
 const LS_WHISPER="smarttodo.whispermodel.v1";
 let WHISPER_MODEL=(function(){const s=localStorage.getItem(LS_WHISPER);return WHISPER_MODELS.some(m=>m.id===s)?s:"Xenova/whisper-small.en";})();
 function whisperTag(){const m=WHISPER_MODELS.find(m=>m.id===WHISPER_MODEL);return m?m.tag:WHISPER_MODEL.replace(/^.*whisper-/i,"").trim();}
@@ -2074,9 +2079,10 @@ async function loadWhisper(onProgress){
       if(tot)onProgress(Math.min(99,Math.round(l/tot*100)));
     };
     const make=(device,dtype)=>pipeline("automatic-speech-recognition",WHISPER_MODEL,{device,dtype,progress_callback:prog});
-    if(gpu){                                   // fp32 on WebGPU: accurate + reliable (fp16 gave garbage); wasm/q8 if no GPU
-      try{_asr=await make("webgpu","fp32");}
-      catch(e){console.warn("whisper webgpu failed, using wasm",e);_asr=await make("wasm","q8");}
+    const dt=whisperCfg().dtype||"fp32";       // per-model precision (fp32 for small ones, fp16/q4 for the big ones)
+    if(gpu){                                   // WebGPU at the model's dtype; fall straight to wasm/q8 if that fails
+      try{_asr=await make("webgpu",dt);}
+      catch(e){console.warn("whisper webgpu failed, using wasm q8",e);_asr=await make("wasm","q8");}
     }else{_asr=await make("wasm","q8");}
     return _asr;
   })();
@@ -2115,7 +2121,9 @@ async function whisperTranscribe(blob,onProgress){
   const pcm=await blobToPCM(blob);
   if(!pcm||pcm.length<16000*0.4)return "";                     // under 0.4s — nothing to read
   const long=pcm.length>16000*28;                              // only chunk clips over ~28s; chunking adds overhead on short notes
-  const out=await asr(pcm,long?{chunk_length_s:30,stride_length_s:5}:{});
+  const opts=long?{chunk_length_s:30,stride_length_s:5}:{};
+  if(!/\.en$/i.test(WHISPER_MODEL)){opts.language="en";opts.task="transcribe";}   // multilingual models (e.g. large-v3-turbo) need a language hint; .en models reject one
+  const out=await asr(pcm,opts);
   const txt=((out&&out.text)||"").trim();
   // Whisper labels silence and noise rather than returning empty; those aren't speech.
   return /^[\[(]?\s*(blank_?audio|silence|music|inaudible|no speech)\s*[\])]?\.?$/i.test(txt)?"":txt;

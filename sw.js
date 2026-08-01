@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v8";   // bump to force a fresh shell re-cache (user-selectable voice model in Settings)
+const CACHE = "smarttodo-v9";   // bump to force a fresh shell re-cache (full voice-model list: tiny..large)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
