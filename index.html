@@ -196,6 +196,10 @@
          border-radius:12px;background:var(--panel-2);padding:12px;font-size:15px;line-height:1.55;white-space:pre-wrap}
   .vtext:empty::before{content:attr(data-empty);color:var(--muted)}
   .vtext .interim{color:var(--muted)}
+  .vedit{width:100%;min-height:110px;max-height:36vh;overflow:auto;text-align:left;border:1px solid var(--accent);
+         border-radius:12px;background:var(--panel-2);padding:12px;font-size:15px;line-height:1.55;outline:none;resize:vertical;color:var(--ink)}
+  .vedit:focus{box-shadow:0 0 0 3px var(--accent-soft)}
+  .vhint{font-size:12px;color:var(--muted)}
   .micbtn.rec{color:var(--red);border-color:var(--red)}
 
   .freorder{display:flex;align-items:center;gap:2px;flex:0 0 auto}
@@ -1996,16 +2000,19 @@ async function loadWhisper(onProgress){
     const {pipeline}=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers");
     const gpu=!!navigator.gpu;                 // WebGPU is 5-10x the WASM fallback
     const seen={};
-    _asr=await pipeline("automatic-speech-recognition",WHISPER_MODEL,{
-      device:gpu?"webgpu":"wasm",
-      dtype:gpu?"fp32":"q8",
-      progress_callback:p=>{                   // several files download at once; report the total
-        if(!onProgress||p.status!=="progress"||!p.total)return;
-        seen[p.file]={loaded:p.loaded,total:p.total};
-        let l=0,tot=0;for(const k in seen){l+=seen[k].loaded;tot+=seen[k].total;}
-        if(tot)onProgress(Math.min(99,Math.round(l/tot*100)));
-      }
-    });
+    const prog=p=>{                            // several files download at once; report the total
+      if(!onProgress||p.status!=="progress"||!p.total)return;
+      seen[p.file]={loaded:p.loaded,total:p.total};
+      let l=0,tot=0;for(const k in seen){l+=seen[k].loaded;tot+=seen[k].total;}
+      if(tot)onProgress(Math.min(99,Math.round(l/tot*100)));
+    };
+    const make=(device,dtype)=>pipeline("automatic-speech-recognition",WHISPER_MODEL,{device,dtype,progress_callback:prog});
+    if(gpu){                                   // fp16 ≈2x fp32 on WebGPU; fall back if a device lacks it
+      try{_asr=await make("webgpu","fp16");}
+      catch(e){console.warn("whisper fp16/webgpu failed, retrying",e);
+        try{_asr=await make("webgpu","fp32");}
+        catch(e2){console.warn("whisper webgpu failed, using wasm",e2);_asr=await make("wasm","q8");}}
+    }else{_asr=await make("wasm","q8");}
     return _asr;
   })();
   try{return await _asrPending;}catch(e){_asrPending=null;throw e;}   // let a retry work
@@ -2042,14 +2049,15 @@ async function whisperTranscribe(blob,onProgress){
   const asr=await loadWhisper(onProgress);
   const pcm=await blobToPCM(blob);
   if(!pcm||pcm.length<16000*0.4)return "";                     // under 0.4s — nothing to read
-  const out=await asr(pcm,{chunk_length_s:30,stride_length_s:5});
+  const long=pcm.length>16000*28;                              // only chunk clips over ~28s; chunking adds overhead on short notes
+  const out=await asr(pcm,long?{chunk_length_s:30,stride_length_s:5}:{});
   const txt=((out&&out.text)||"").trim();
   // Whisper labels silence and noise rather than returning empty; those aren't speech.
   return /^[\[(]?\s*(blank_?audio|silence|music|inaudible|no speech)\s*[\])]?\.?$/i.test(txt)?"":txt;
 }
 
-/* Tap mic → speak → tap stop → Whisper transcribes, and the punctuated text is filed
-   straight onto the task as a timestamped note; no typing, no extra confirm step. */
+/* Tap mic → speak → tap stop → Whisper transcribes → you review/edit → Save.
+   The model is warmed while you talk so transcription starts the moment you stop. */
 function openVoiceNote(t){
   if(!voiceReady())return;
   if(!useWhisper())return openVoiceNoteLive(t);
@@ -2059,76 +2067,89 @@ function openVoiceNote(t){
     const sub=el("div","vstate","Recording…");
     const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop and transcribe";
     const view=el("div","vtext");view.setAttribute("data-empty","Recording — tap stop when you're done.");
-    card.append(mic,sub,view);
+    const ta=el("textarea","vedit");ta.placeholder="Your transcript appears here to review and edit before saving.";ta.style.display="none";
+    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Review & edit, then Save note.";
+    card.append(mic,sub,view,ta,hint);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
-    const save=el("button","btn2 primary","Save note");
+    const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,save);card.appendChild(foot);
 
-    let rec=null,done=false,busy=false;
-    const finish=txt=>{
-      if(done)return;done=true;
-      const v=(txt||"").trim();
-      if(v){prependNote(t,v);toast("Voice note added");}
-      else toast("Nothing was picked up");
-      close();
+    let rec=null,done=false,busy=false,reviewing=false;
+    loadWhisper(p=>{if(!reviewing&&!done&&!busy)sub.textContent="Recording… (readying model "+p+"%)";}).catch(()=>{});  // warm in parallel
+    const toReview=(txt,note)=>{                          // second phase: editable transcript, explicit Save
+      if(done)return;reviewing=true;busy=false;
+      mic.style.display="none";view.style.display="none";
+      ta.style.display="";hint.style.display="";
+      ta.value=(txt||"").trim();
+      sub.textContent=ta.value?"Review":"No speech — type your note";
+      if(note)hint.textContent=note;
+      save.disabled=false;ta.focus();
+      const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
     };
-    const fail=msg=>{if(done)return;done=true;toast(msg);close();};
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
+      if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
+    const hardFail=msg=>{if(done)return;done=true;toast(msg);close();};
     const stopRec=async()=>{
-      if(busy||done)return;
-      if(!rec)return fail("The microphone never started");
+      if(busy||done||reviewing)return;
+      if(!rec)return hardFail("The microphone never started");
       busy=true;mic.classList.remove("rec");
       sub.textContent="Transcribing…";
       view.setAttribute("data-empty","Working on it — this takes a few seconds.");
       let blob;
-      try{blob=await rec.stop();}catch(e){return fail("Couldn't finish the recording");}
-      try{finish(await whisperTranscribe(blob,p=>{sub.textContent="Downloading voice model… "+p+"%";}));}
-      catch(e){console.warn("Whisper failed",e);fail("Couldn't load the voice model — check your connection and try again");}
+      try{blob=await rec.stop();}catch(e){return hardFail("Couldn't finish the recording");}
+      try{toReview(await whisperTranscribe(blob,p=>{sub.textContent="Loading voice model… "+p+"%";}));}
+      catch(e){console.warn("Whisper failed",e);toReview("","Couldn't transcribe — you can type the note, or Discard and retry.");}
     };
-    mic.onclick=stopRec;save.onclick=stopRec;
+    mic.onclick=stopRec;
+    save.onclick=()=>{reviewing?commit():stopRec();};
     cancel.onclick=()=>{done=true;if(rec)rec.cancel();close();};
     recordMic().then(h=>{if(done){h.cancel();return;}rec=h;})
-      .catch(e=>fail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
+      .catch(e=>hardFail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
   });
 }
-/* Offline fallback: the old live Web Speech flow, no punctuation but no model needed. */
+/* Offline fallback: the old live Web Speech flow, no punctuation but no model needed.
+   After you stop, the text drops into an editable box to review/fix before Save. */
 function openVoiceNoteLive(t){
   showModal((card,close)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
     const sub=el("div","vstate","Listening…");
-    const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop and save";
+    const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop";
     const view=el("div","vtext");view.setAttribute("data-empty","Start talking — your words appear here.");
-    card.append(mic,sub,view);
+    const ta=el("textarea","vedit");ta.placeholder="Review and edit before saving.";ta.style.display="none";
+    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Review & edit, then Save note.";
+    card.append(mic,sub,view,ta,hint);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
-    const save=el("button","btn2 primary","Save note");
+    const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,save);card.appendChild(foot);
 
-    let handle=null,done=false;
+    let handle=null,done=false,reviewing=false;
     const paint=(fin,int)=>{view.innerHTML="";
       if(fin)view.appendChild(document.createTextNode(fin));
       if(int){const s=el("span","interim"," "+int);view.appendChild(s);}
       view.scrollTop=view.scrollHeight;};
-    const finish=txt=>{
-      if(done)return;done=true;
-      const v=(txt||"").trim();
-      if(v){prependNote(t,v);toast("Voice note added");}
-      else toast("Nothing was picked up");
-      close();
+    const toReview=txt=>{
+      if(done||reviewing)return;reviewing=true;
+      mic.style.display="none";view.style.display="none";ta.style.display="";hint.style.display="";
+      ta.value=(txt||"").trim();sub.textContent=ta.value?"Review":"No speech — type your note";
+      save.disabled=false;ta.focus();const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
     };
-    const stopRec=()=>{sub.textContent="Saving…";mic.classList.remove("rec");if(handle)handle.stop();else finish(view.textContent);};
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
+      if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
+    const stopRec=()=>{if(reviewing)return;sub.textContent="Finishing…";mic.classList.remove("rec");if(handle)handle.stop();else toReview(view.textContent);};
     handle=dictate({
       partial:paint,
-      end:txt=>finish(txt),
+      end:txt=>toReview(txt),
       error:code=>{
-        if(done)return;done=true;
+        if(done||reviewing)return;
         toast(code==="not-allowed"||code==="service-not-allowed"?"Microphone permission was blocked":"Couldn't hear anything ("+code+")");
-        close();
+        toReview(view.textContent);
       }
     });
     mic.onclick=stopRec;
-    save.onclick=stopRec;
+    save.onclick=()=>{reviewing?commit():stopRec();};
     cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
   });
 }
@@ -2167,7 +2188,7 @@ function attachMic(btn,ta){
       });
       return;
     }
-    try{rec=await recordMic();btn.classList.add("rec");label("Stop");}
+    try{rec=await recordMic();btn.classList.add("rec");label("Stop");loadWhisper().catch(()=>{});}   // warm the model while recording
     catch(e){toast(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone");}
   };
 }
