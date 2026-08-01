@@ -2003,13 +2003,11 @@ function dictate(on){                       // on:{partial,final,error,end} → 
          text(){return finalTxt.trim();}};
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
-   Same model family as the DailyCapture Android app (ggml-tiny.en → Xenova/whisper-tiny.en),
-   so capitalisation and punctuation read the same in both. Runs entirely in the browser via
-   transformers.js: no API key, no server, nothing leaves the device. ~40 MB fetched once and
-   then served from the browser cache.
-   Unlike the Web Speech API this cannot transcribe while you talk — it needs the finished
-   clip — so the flow is record, stop, transcribe. */
-const WHISPER_MODEL="Xenova/whisper-tiny.en";
+   Used only for the opt-in "Refine with Whisper" pass, so accuracy > speed: we run the larger
+   whisper-BASE.en (much better than tiny) at reliable fp32 on WebGPU (fp16 produced garbage on
+   some GPUs — "not even close"). Runs entirely in the browser via transformers.js: no API key,
+   no server, nothing leaves the device. Model fetched once, then served from the browser cache. */
+const WHISPER_MODEL="Xenova/whisper-base.en";
 let _asr=null,_asrPending=null;
 function whisperSupported(){
   return !!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
@@ -2028,11 +2026,9 @@ async function loadWhisper(onProgress){
       if(tot)onProgress(Math.min(99,Math.round(l/tot*100)));
     };
     const make=(device,dtype)=>pipeline("automatic-speech-recognition",WHISPER_MODEL,{device,dtype,progress_callback:prog});
-    if(gpu){                                   // fp16 ≈2x fp32 on WebGPU; fall back if a device lacks it
-      try{_asr=await make("webgpu","fp16");}
-      catch(e){console.warn("whisper fp16/webgpu failed, retrying",e);
-        try{_asr=await make("webgpu","fp32");}
-        catch(e2){console.warn("whisper webgpu failed, using wasm",e2);_asr=await make("wasm","q8");}}
+    if(gpu){                                   // fp32 on WebGPU: accurate + reliable (fp16 gave garbage); wasm/q8 if no GPU
+      try{_asr=await make("webgpu","fp32");}
+      catch(e){console.warn("whisper webgpu failed, using wasm",e);_asr=await make("wasm","q8");}
     }else{_asr=await make("wasm","q8");}
     return _asr;
   })();
@@ -2146,7 +2142,7 @@ function openVoiceNoteLive(t){
     card.append(mic,sub,view,ta,hint);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
-    const refineBtn=el("button","btn2 refine",svg(IC.repeat)+"Refine with Whisper");refineBtn.style.display="none";
+    const refineBtn=el("button","btn2 refine","Refine with Whisper");refineBtn.style.display="none";
     const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,refineBtn,save);card.appendChild(foot);
 
@@ -2167,16 +2163,16 @@ function openVoiceNoteLive(t){
     };
     const doRefine=async()=>{
       if(!recBlob)return;refineBtn.disabled=true;
-      const restore=()=>{refineBtn.disabled=false;refineBtn.innerHTML=svg(IC.repeat)+(preRefine!==null?"Undo refine":"Refine with Whisper");refineBtn.onclick=preRefine!==null?undoRefine:doRefine;};
-      refineBtn.innerHTML="Refining…";
+      const restore=()=>{refineBtn.disabled=false;refineBtn.textContent=preRefine!==null?"Undo refine":"Refine with Whisper";refineBtn.onclick=preRefine!==null?undoRefine:doRefine;};
+      refineBtn.textContent="Refining…";
       try{
-        const txt=await whisperTranscribe(recBlob,p=>{refineBtn.innerHTML="Loading model "+p+"%";});
+        const txt=await whisperTranscribe(recBlob,p=>{refineBtn.textContent="Loading model "+p+"%";});
         if(txt){preRefine=ta.value;ta.value=txt;hint.textContent="Refined with Whisper — edit if needed, or undo.";}
         else toast("Whisper heard no speech in that clip");
       }catch(e){console.warn("Whisper refine failed",e);toast("Couldn't run Whisper — check your connection");}
       restore();
     };
-    const undoRefine=()=>{if(preRefine!==null){ta.value=preRefine;preRefine=null;}hint.textContent="Review & edit, then Save note.";refineBtn.innerHTML=svg(IC.repeat)+"Refine with Whisper";refineBtn.onclick=doRefine;ta.focus();};
+    const undoRefine=()=>{if(preRefine!==null){ta.value=preRefine;preRefine=null;}hint.textContent="Review & edit, then Save note.";refineBtn.textContent="Refine with Whisper";refineBtn.onclick=doRefine;ta.focus();};
     const commit=()=>{if(done)return;const v=ta.value.trim();done=true;releaseRec();
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
     const stopRec=()=>{if(reviewing)return;sub.textContent="Finishing…";mic.classList.remove("rec");if(handle)handle.stop();else toReview(view.textContent);};

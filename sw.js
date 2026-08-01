@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v4";   // bump to force a fresh shell re-cache (transcriber reverted to Web Speech)
+const CACHE = "smarttodo-v5";   // bump to force a fresh shell re-cache (refine button label + whisper-base model)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
