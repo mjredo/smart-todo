@@ -201,6 +201,14 @@
   .vedit:focus{box-shadow:0 0 0 3px var(--accent-soft)}
   .vhint{font-size:12px;color:var(--muted)}
   .vmodel{font-size:11px;color:var(--muted);text-align:center;opacity:.8;margin-top:2px}
+  .vmodels{display:flex;flex-direction:column;gap:8px}
+  .vmrow{display:flex;align-items:flex-start;gap:10px;border:1.5px solid var(--line);border-radius:11px;padding:11px 12px;text-align:left;background:var(--panel-2)}
+  .vmrow.on{border-color:var(--accent);background:var(--accent-soft)}
+  .vmrow .vmck{flex:0 0 auto;width:20px;height:20px;display:grid;place-items:center;color:var(--accent);margin-top:1px}
+  .vmrow .vmck svg{width:18px;height:18px}
+  .vmrow .vminfo{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .vmrow .vmname{font-weight:600;font-size:14px}
+  .vmrow .vmdesc{font-size:12.5px;color:var(--muted)}
   .micbtn.rec{color:var(--red);border-color:var(--red)}
 
   .freorder{display:flex;align-items:center;gap:2px;flex:0 0 auto}
@@ -486,6 +494,7 @@
     <button class="addlist" id="newListBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New list</button>
     <h4>Maintenance</h4>
     <button class="addlist" id="dedupeBtn"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg> Remove duplicates</button>
+    <button class="addlist" id="voiceModelBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Voice model</button>
     <div class="synced" id="syncState"></div>
     <div class="side-foot">
       <button class="navbtn" id="signOutBtn"><svg class="ic icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="lbl">Sign out</span></button>
@@ -2004,16 +2013,52 @@ function dictate(on){                       // on:{partial,final,error,end} → 
          text(){return finalTxt.trim();}};
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
-   Used only for the opt-in "Refine with Whisper" pass, so accuracy > speed: we run whisper-
-   SMALL.en (the most accurate small English model — base/tiny weren't close enough) at reliable
-   fp32 on WebGPU (fp16 produced garbage on some GPUs). Runs entirely in the browser via
-   transformers.js: no API key, no server, nothing leaves the device. It's a big one-time
-   download (~900 MB fp32) then served from the browser cache; first Refine is slow, rest fast. */
-const WHISPER_MODEL="Xenova/whisper-small.en";
-function whisperTag(){return WHISPER_MODEL.replace(/^.*whisper-/i,"").trim();}   // friendly name shown in the dialog, e.g. "small.en"
+   Used only for the opt-in "Refine with Whisper" pass. The model is USER-SELECTABLE (Settings →
+   Voice model) so Manoj can trade download size / speed for accuracy per his need. Runs entirely
+   in the browser via transformers.js at fp32 on WebGPU (fp16 gave garbage on some GPUs); no API
+   key, no server, nothing leaves the device. Each model downloads once, then served from cache. */
+const WHISPER_MODELS=[
+  {id:"Xenova/whisper-tiny.en",  tag:"tiny.en",  label:"Tiny",  size:"~40 MB",  note:"Fastest, smallest — least accurate"},
+  {id:"Xenova/whisper-base.en",  tag:"base.en",  label:"Base",  size:"~145 MB", note:"Balanced speed and accuracy"},
+  {id:"Xenova/whisper-small.en", tag:"small.en", label:"Small", size:"~900 MB", note:"Most accurate — big download, slower"}
+];
+const LS_WHISPER="smarttodo.whispermodel.v1";
+let WHISPER_MODEL=(function(){const s=localStorage.getItem(LS_WHISPER);return WHISPER_MODELS.some(m=>m.id===s)?s:"Xenova/whisper-small.en";})();
+function whisperTag(){const m=WHISPER_MODELS.find(m=>m.id===WHISPER_MODEL);return m?m.tag:WHISPER_MODEL.replace(/^.*whisper-/i,"").trim();}
+function setWhisperModel(id){
+  if(!WHISPER_MODELS.some(m=>m.id===id)||id===WHISPER_MODEL)return;
+  WHISPER_MODEL=id;localStorage.setItem(LS_WHISPER,id);
+  _asr=null;_asrPending=null;                       // drop the loaded pipeline so the next Refine loads the new model
+}
 let _asr=null,_asrPending=null;
 function whisperSupported(){
   return !!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+}
+/* Settings → Voice model: pick the Whisper model used by "Refine with Whisper" (speed/size vs accuracy). */
+function openVoiceSettings(){
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Voice model</div><div class="msub">${svg(IC.mic)}Used by “Refine with Whisper”. Runs on your device; a bigger model is more accurate but downloads once and is slower.</div>`;
+    let chosen=WHISPER_MODEL;
+    const list=el("div","vmodels");
+    const render=()=>{list.innerHTML="";
+      WHISPER_MODELS.forEach(m=>{
+        const row=el("button","vmrow"+(m.id===chosen?" on":"")+(m.id===WHISPER_MODEL?" cur":""));
+        const ck=el("span","vmck");if(m.id===chosen)ck.innerHTML=svg(IC.check);
+        const info=el("div","vminfo");
+        const nm=el("div","vmname");nm.textContent="Whisper "+m.tag+" — "+m.label+(m.id===WHISPER_MODEL?"  (current)":"");
+        const ds=el("div","vmdesc");ds.textContent=m.note+" · "+m.size;
+        info.append(nm,ds);row.append(ck,info);
+        row.onclick=()=>{chosen=m.id;render();};
+        list.appendChild(row);
+      });
+    };
+    render();card.appendChild(list);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const save=el("button","btn2 primary","Use this model");
+    save.onclick=()=>{const changed=chosen!==WHISPER_MODEL;setWhisperModel(chosen);toast(changed?("Voice model set to Whisper "+whisperTag()):"No change");close();};
+    foot.append(cancel,save);card.appendChild(foot);
+  });
 }
 async function loadWhisper(onProgress){
   if(_asr)return _asr;
@@ -2363,6 +2408,7 @@ function wireUi(){
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
   $("#newListBtn").onclick=newList;
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
+  $("#voiceModelBtn").onclick=()=>{closeSide();openVoiceSettings();};
   $("#selectBtn").onclick=()=>selMode?exitSelect():setSelectMode(true);
   $("#bulkClear").onclick=exitSelect;
   $("#bulkComplete").onclick=bulkComplete;
