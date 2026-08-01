@@ -2003,11 +2003,12 @@ function dictate(on){                       // on:{partial,final,error,end} → 
          text(){return finalTxt.trim();}};
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
-   Used only for the opt-in "Refine with Whisper" pass, so accuracy > speed: we run the larger
-   whisper-BASE.en (much better than tiny) at reliable fp32 on WebGPU (fp16 produced garbage on
-   some GPUs — "not even close"). Runs entirely in the browser via transformers.js: no API key,
-   no server, nothing leaves the device. Model fetched once, then served from the browser cache. */
-const WHISPER_MODEL="Xenova/whisper-base.en";
+   Used only for the opt-in "Refine with Whisper" pass, so accuracy > speed: we run whisper-
+   SMALL.en (the most accurate small English model — base/tiny weren't close enough) at reliable
+   fp32 on WebGPU (fp16 produced garbage on some GPUs). Runs entirely in the browser via
+   transformers.js: no API key, no server, nothing leaves the device. It's a big one-time
+   download (~900 MB fp32) then served from the browser cache; first Refine is slow, rest fast. */
+const WHISPER_MODEL="Xenova/whisper-small.en";
 let _asr=null,_asrPending=null;
 function whisperSupported(){
   return !!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
