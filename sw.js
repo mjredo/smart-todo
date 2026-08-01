@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v6";   // bump to force a fresh shell re-cache (whisper-small.en refine model)
+const CACHE = "smarttodo-v7";   // bump to force a fresh shell re-cache (show whisper model in Speak dialog)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",

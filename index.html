@@ -200,6 +200,7 @@
          border-radius:12px;background:var(--panel-2);padding:12px;font-size:15px;line-height:1.55;outline:none;resize:vertical;color:var(--ink)}
   .vedit:focus{box-shadow:0 0 0 3px var(--accent-soft)}
   .vhint{font-size:12px;color:var(--muted)}
+  .vmodel{font-size:11px;color:var(--muted);text-align:center;opacity:.8;margin-top:2px}
   .micbtn.rec{color:var(--red);border-color:var(--red)}
 
   .freorder{display:flex;align-items:center;gap:2px;flex:0 0 auto}
@@ -2009,6 +2010,7 @@ function dictate(on){                       // on:{partial,final,error,end} → 
    transformers.js: no API key, no server, nothing leaves the device. It's a big one-time
    download (~900 MB fp32) then served from the browser cache; first Refine is slow, rest fast. */
 const WHISPER_MODEL="Xenova/whisper-small.en";
+function whisperTag(){return WHISPER_MODEL.replace(/^.*whisper-/i,"").trim();}   // friendly name shown in the dialog, e.g. "small.en"
 let _asr=null,_asrPending=null;
 function whisperSupported(){
   return !!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
@@ -2146,6 +2148,7 @@ function openVoiceNoteLive(t){
     const refineBtn=el("button","btn2 refine","Refine with Whisper");refineBtn.style.display="none";
     const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,refineBtn,save);card.appendChild(foot);
+    card.appendChild(el("div","vmodel","Refine uses Whisper "+whisperTag()+" · on-device"));
 
     let handle=null,done=false,reviewing=false,rec=null,recBlob=null,preRefine=null;
     // record the audio alongside dictation (best-effort — if it fails, Refine just won't offer)
