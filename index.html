@@ -1937,10 +1937,10 @@ function fillDetail(t){
     i.onchange=()=>{
       const g=localInputToGraph(i.value);
       if(g){if(!remISO||i.value!==remISO)patchTask(t,{isReminderOn:true,reminderDateTime:g});}
-      else if(remISO)patchTask(t,{isReminderOn:false});      // emptied → clear; ignore partial input on a task with no reminder
+      else if(remISO)patchTask(t,{isReminderOn:false,reminderDateTime:null});   // must clear BOTH — Graph re-derives isReminderOn:true if the date lingers (verified live)
       else i.value="";
     };return i;})(),
-    remISO?()=>patchTask(t,{isReminderOn:false}):null));
+    remISO?()=>patchTask(t,{isReminderOn:false,reminderDateTime:null}):null));
   sec.appendChild(dRow(IC.repeat,"Repeat",(()=>{const s=el("select");
     [["none","Never"],["daily","Daily"],["weekdays","Weekdays"],["weekly","Weekly"],["monthly","Monthly"],["yearly","Yearly"]].forEach(([v,l])=>{const o=el("option",null,l);o.value=v;s.appendChild(o);});
     s.value=rec;s.onchange=()=>{const start=dueISO||todayISO();const body={recurrence:buildRecurrence(s.value,start)};if(s.value!=="none"&&!dueISO)body.dueDateTime={dateTime:start+"T00:00:00.0000000",timeZone:"UTC"};patchTask(t,body);};return s;})(),null));
