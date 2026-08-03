@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v10";   // bump to force a fresh shell re-cache (reminder clear fix)
+const CACHE = "smarttodo-v11";   // bump to force a fresh shell re-cache (Android voice dictation fix)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",

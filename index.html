@@ -1984,14 +1984,26 @@ function useWhisper(){return !SR && whisperSupported();}
 function dictate(on){                       // on:{partial,final,error,end} → returns a stop() handle
   const r=new SR();
   r.lang=navigator.language||"en-US";
-  r.continuous=true;                        // Android often ends on its own anyway — handled below
   r.interimResults=true;
-  let finalTxt="",stopped=false;
-  /* Rebuild the whole transcript from e.results every time instead of appending the slice
-     from e.resultIndex. Chrome on Android hands back resultIndex 0 on every event, so the
-     append form re-added segments that were already final and the note came out as
-     "send send a send a message send a message out…". Rebuilding is idempotent: replaying
-     the same results yields the same string, so a repeated event can't duplicate text. */
+  /* Android's Web Speech recogniser does NOT honour continuous mode the way desktop does:
+     (1) it stops listening after the first pause and fires onend — so treating onend as
+         "user finished" cut dictation off after one sentence; and
+     (2) in a long session it re-delivers already-final phrases as EXTRA final entries in
+         e.results, so rebuilding from all finals duplicated text ("send a message send a
+         message…").
+     Fix: on Android run single-shot (continuous=false — which is all it really does anyway)
+     and RESTART the recogniser ourselves after each pause, folding each session's finals into
+     a persistent `committed` string. Single-shot gives one clean final per utterance (no
+     duplication); self-restart keeps it listening until the user taps Stop (no cut-off).
+     Desktop keeps continuous=true, where rebuild-from-all-finals already works well. */
+  const android=/Android/i.test(navigator.userAgent||"");
+  r.continuous=!android;
+  let committed="",sessionFinal="",stopped=false;
+  const full=()=>((committed?committed+" ":"")+sessionFinal).trim();
+  /* Rebuild the current session's transcript from e.results every time instead of appending
+     the slice from e.resultIndex. Chrome on Android hands back resultIndex 0 on every event,
+     so the append form re-added segments that were already final. Rebuilding is idempotent:
+     replaying the same results yields the same string, so a repeated event can't duplicate. */
   r.onresult=e=>{
     let fin="",interim="";
     for(let i=0;i<e.results.length;i++){
@@ -1999,18 +2011,28 @@ function dictate(on){                       // on:{partial,final,error,end} → 
       if(res.isFinal)fin=(fin?fin+" ":"")+res[0].transcript.trim();
       else interim+=res[0].transcript;
     }
-    finalTxt=fin;
-    on.partial&&on.partial(finalTxt,interim.trim());
+    sessionFinal=fin;
+    on.partial&&on.partial(full(),interim.trim());
   };
-  r.onerror=e=>{stopped=true;on.error&&on.error(e.error||"error");};
+  r.onerror=e=>{
+    const code=e.error||"error";
+    // A pause with no words (or an internal abort between restarts) is normal on Android —
+    // don't surface it or stop; let onend restart the recogniser.
+    if(!stopped&&(code==="no-speech"||code==="aborted"))return;
+    stopped=true;on.error&&on.error(code);
+  };
   r.onend=()=>{
-    if(stopped)return;
-    stopped=true;on.end&&on.end(finalTxt.trim());
+    // fold this session's finals into the running transcript before deciding what's next
+    if(sessionFinal){committed=(committed?committed+" ":"")+sessionFinal;sessionFinal="";}
+    if(stopped){on.end&&on.end(committed.trim());return;}
+    // user hasn't stopped → Android ended on a pause; start a fresh session and keep going
+    const kick=()=>{try{r.start();}catch(_){ if(!stopped){stopped=true;on.end&&on.end(committed.trim());} }};
+    try{r.start();}catch(_){setTimeout(()=>{if(!stopped)kick();},250);}
   };
   try{r.start();}catch(e){on.error&&on.error("start");}
-  return{stop(){if(stopped){on.end&&on.end(finalTxt.trim());return;}try{r.stop();}catch(_){ }},
+  return{stop(){if(stopped){on.end&&on.end(full());return;}stopped=true;try{r.stop();}catch(_){on.end&&on.end(full());}},
          abort(){stopped=true;try{r.abort();}catch(_){ }},
-         text(){return finalTxt.trim();}};
+         text(){return full();}};
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
    Used only for the opt-in "Refine with Whisper" pass. The model is USER-SELECTABLE (Settings →
