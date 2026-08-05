@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Smart To Do</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#7c5cff">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,23 +16,34 @@
 <script src="config.js"></script>
 <style>
   :root{
-    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#fbfcfd; --ink:#141a22; --muted:#697586;
-    --line:#e6e9ee; --line-2:#eef1f5; --accent:#2563eb; --accent-ink:#fff; --accent-soft:#e8f0fe;
-    --chip:#eef1f6; --chip-on:#2563eb; --chip-on-ink:#fff;
-    --red:#d63b3b; --amber:#c07a00; --green:#1f9d55; --star:#f2b100;
-    --shadow-sm:0 1px 2px rgba(20,26,34,.06),0 1px 3px rgba(20,26,34,.05);
-    --shadow-md:0 4px 12px rgba(20,26,34,.10);
-    --shadow-lg:0 12px 34px rgba(20,26,34,.18);
+    /* ===== Aurora — light (mint → violet on a soft cool sky) ===== */
+    --bg:#f3f6fb; --panel:#ffffff; --panel-2:#f6f8fc; --ink:#1c2733; --muted:#5f7178;
+    --line:#e5ecec; --line-2:#eef2f3; --accent:#6d4fe3; --accent-ink:#fff; --accent-soft:#ece8ff;
+    --chip:#e9f0ee; --chip-on:#6d4fe3; --chip-on-ink:#fff;
+    --red:#e5484d; --amber:#b8720a; --green:#0e9b82; --star:#f5a623;
+    /* gradient surfaces + ambient wash */
+    --grad:linear-gradient(135deg,#22c1a8,#7c5cff);
+    --grad-soft:linear-gradient(135deg,rgba(34,193,168,.15),rgba(124,92,255,.16));
+    --glow:radial-gradient(1100px 320px at 80% -12%,rgba(124,92,255,.10),transparent 60%),
+           radial-gradient(820px 280px at 0% -6%,rgba(34,193,168,.13),transparent 62%);
+    --shadow-sm:0 1px 2px rgba(28,39,60,.06),0 1px 3px rgba(28,39,60,.05);
+    --shadow-md:0 6px 18px -6px rgba(40,60,110,.16);
+    --shadow-lg:0 18px 44px -12px rgba(40,55,100,.28);
     --r:14px; --r-sm:10px;
   }
   @media (prefers-color-scheme:dark){
     :root{
-      --bg:#14171c; --panel:#1c2027; --panel-2:#20252d; --ink:#e7ebf0; --muted:#94a0b0;
-      --line:#2b313a; --line-2:#252b33; --accent:#4b8bf5; --accent-ink:#0a0e14; --accent-soft:#1c2a44;
-      --chip:#2a303a; --chip-on:#4b8bf5; --chip-on-ink:#08111f;
-      --red:#f0736f; --amber:#e0a52e; --green:#41c07d; --star:#ffcb2e;
-      --shadow-sm:0 1px 2px rgba(0,0,0,.35); --shadow-md:0 6px 16px rgba(0,0,0,.45);
-      --shadow-lg:0 16px 40px rgba(0,0,0,.6);
+      /* ===== Aurora — dark (clean deep blue-charcoal, not muddy) ===== */
+      --bg:#0f141c; --panel:#161d27; --panel-2:#1b2330; --ink:#e6ecf5; --muted:#8fa1b6;
+      --line:#232e3c; --line-2:#1d2531; --accent:#9d86ff; --accent-ink:#0a0e14; --accent-soft:#241f3a;
+      --chip:#1f2836; --chip-on:#9d86ff; --chip-on-ink:#0a0e14;
+      --red:#f0736f; --amber:#e0a52e; --green:#3dd0b4; --star:#ffcb2e;
+      --grad:linear-gradient(135deg,#28d0b4,#9d86ff);
+      --grad-soft:linear-gradient(135deg,rgba(40,208,180,.16),rgba(157,134,255,.18));
+      --glow:radial-gradient(1100px 340px at 80% -12%,rgba(157,134,255,.16),transparent 60%),
+             radial-gradient(820px 300px at 0% -6%,rgba(40,208,180,.13),transparent 62%);
+      --shadow-sm:0 1px 2px rgba(0,0,0,.35); --shadow-md:0 8px 20px -6px rgba(0,0,0,.5);
+      --shadow-lg:0 20px 46px -12px rgba(0,0,0,.62);
     }
   }
   :root[data-theme=dark]{ color-scheme:dark; }
@@ -450,6 +461,25 @@
     .pop.open{transform:none}
     .hide-sm{display:none}
   }
+
+  /* =======================================================================
+     Aurora — gradient accents & ambient wash (overrides; token-driven above)
+     ===================================================================== */
+  .content{background:var(--glow)}
+  /* brand + sign-in mark carry the mint→violet gradient */
+  .brand .logo,.center .logo{background:var(--grad)}
+  /* primary calls-to-action */
+  .addbar .go,.btn.primary,.btn2.primary,.cbtn,.chip.on{background:var(--grad);border-color:transparent}
+  .chip.on{color:#fff}
+  /* the "+" tile in the add bar gets a soft gradient tint */
+  .addbar .plus{background:var(--grad-soft)}
+  /* completed & selected checkmarks fill with the gradient */
+  .task.done .ck,.task.sel .selck,.step.sdone .sck,.dedup-row.keep .kbox{background:var(--grad);border-color:transparent}
+  /* active sidebar item: soft aurora wash, keeps accent-colored text/icon */
+  .navbtn.active{background:var(--grad-soft)}
+  .navbtn.active .ct{background:var(--grad)}
+  /* running per-row timer + header timer chip ride the gradient */
+  .pill.running,.timerchip.multi{background:var(--grad);border-color:transparent}
 </style>
 </head>
 <body>
