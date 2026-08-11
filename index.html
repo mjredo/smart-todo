@@ -456,6 +456,18 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .offlinebar svg{width:17px;height:17px;flex:0 0 auto}
   .offlinebar.off{background:rgba(192,122,0,.13);color:var(--amber);border:1px solid rgba(192,122,0,.32)}
   .offlinebar.sync{background:var(--accent-soft);color:var(--accent);border:1px solid transparent}
+  /* re-auth prompt — the recovery path when a silent token refresh fails.
+     Fixed, so it can sit over the loading screen, the gate, or the app.   */
+  #reauth{position:fixed;left:0;right:0;bottom:0;z-index:120;display:flex;justify-content:center;
+    padding:14px 16px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .reauth-card{display:flex;flex-direction:column;gap:9px;width:100%;max-width:440px;padding:15px 16px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg)}
+  .reauth-hd{display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px;color:var(--ink)}
+  .reauth-hd .icon{flex:0 0 auto;color:var(--amber)}
+  .reauth-msg{color:var(--muted);font-size:12.5px;line-height:1.45}
+  .reauth-card .cbtn{width:100%;padding:11px 18px;font-size:14px}
+  .reauth-card .cbtn:disabled{opacity:.6}
+  .reauth-alt{background:none;border:0;color:var(--accent);font-size:12.5px;font-weight:600;padding:2px;cursor:pointer}
   .task._pend .ck{border-style:dashed}
   code{background:var(--chip);padding:1px 6px;border-radius:5px;font-size:12.5px}
 
@@ -516,6 +528,20 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
 </div>
 
 <div id="loading" class="center"><div class="spin"></div><div style="color:var(--muted)">Loading your tasks…</div></div>
+
+<!-- Re-auth. An installed Android PWA can't be trusted to come back from a
+     mid-load redirect, so a failed silent refresh asks for a tap instead. -->
+<div id="reauth" style="display:none">
+  <div class="reauth-card">
+    <div class="reauth-hd">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span>Sign-in expired</span>
+    </div>
+    <div class="reauth-msg" id="reauthMsg">Microsoft needs you to sign in again before your lists can load.</div>
+    <button class="cbtn" id="reauthBtn">Tap to re-authenticate</button>
+    <button class="reauth-alt" id="reauthRetry">Already signed in? Retry</button>
+  </div>
+</div>
 
 <!-- App -->
 <div id="scrim"></div>
@@ -689,7 +715,11 @@ const GRAPH="https://graph.microsoft.com/v1.0";
 const SCOPES=["Tasks.ReadWrite","Files.ReadWrite.AppFolder","User.Read"];
 const LS_SAVED="smarttodo.saved.v1";
 const CLOUD_FILE="/me/drive/special/approot:/smart-lists.json:/content";
-const IS_MOBILE=window.matchMedia("(display-mode: standalone)").matches||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+/* Installed-app mode is the case that can't survive a mid-load auth redirect —
+   keep it separate from "is a phone", which still redirects fine in a tab.   */
+const IS_STANDALONE=window.matchMedia("(display-mode: standalone)").matches
+  ||window.matchMedia("(display-mode: minimal-ui)").matches||navigator.standalone===true;
+const IS_MOBILE=IS_STANDALONE||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 let account,LISTS=[],TASKS=[],TAGS=[];
@@ -707,6 +737,10 @@ let ORDER=[], _rank=new Map();          // manual drag order: task ids, best-eff
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;   // voice notes
 const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1", LS_LASTSYNC="smarttodo.lastsync.v1";
 let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LASTSYNC)||0;
+let _netProbe={ok:null,at:0};      // last real reachability check — outranks navigator.onLine
+let _partialLoad=false;            // some list's tasks failed → this snapshot must not be cached
+let _loadSeq=0;                    // bumped each time /me/todo/lists lands, so start() knows LISTS is fresh
+let _retrying=false;
 let _flushing=false, _flushAgain=false;
 let selMode=false, selected=new Set(), _selIds=[], _selAnchor=null;   // multiselect
 
@@ -751,7 +785,9 @@ async function boot(){
   const redirectUri=CFG.redirectUri&&!String(CFG.redirectUri).startsWith("http://localhost")?CFG.redirectUri:(location.origin+location.pathname);
   window.msalApp=new msal.PublicClientApplication({auth:{clientId:CFG.clientId,authority:"https://login.microsoftonline.com/"+CFG.tenantId,redirectUri},cache:{cacheLocation:"localStorage"}});
   await window.msalApp.initialize();
-  try{const r=await window.msalApp.handleRedirectPromise();if(r&&r.account)window.msalApp.setActiveAccount(r.account);}catch(e){console.warn(e);}
+  $("#reauthBtn").onclick=doReauth; $("#reauthRetry").onclick=retryAuth;
+  try{const r=await window.msalApp.handleRedirectPromise();if(r&&r.account)window.msalApp.setActiveAccount(r.account);}
+  catch(e){console.warn(e);clearStuckInteraction();}   // a half-finished redirect must not block the next one
   const a=window.msalApp.getAllAccounts();
   if(a.length){window.msalApp.setActiveAccount(a[0]);account=a[0];return start();}
   show("gate");
@@ -764,13 +800,82 @@ async function boot(){
     }catch(e){$("#gateMsg").textContent="Sign-in failed: "+(e.message||e);}
   };
 }
+function authErr(kind,msg){const e=new Error(msg||kind);e[kind]=true;return e;}
+
+/* An installed Android PWA can't be relied on to return from a redirect fired
+   mid-load: Chrome may hand the login hop to the system browser, and the auth
+   response never reaches this window. The old code returned a promise that
+   never settled, so the app sat on "Loading your tasks…" forever. Now a failed
+   silent refresh raises a `reauth` error and puts up a banner — a redirect the
+   user taps is a top-level gesture, which does stay in (and return to) the PWA. */
 async function tok(){
   const req={scopes:SCOPES,account:window.msalApp.getActiveAccount()};
-  try{return (await window.msalApp.acquireTokenSilent(req)).accessToken;}
+  try{const r=await window.msalApp.acquireTokenSilent(req);hideReauth();return r.accessToken;}
   catch(e){
-    if(isOffline()){const err=new Error("offline");err.offline=true;throw err;}   // don't launch sign-in with no network
-    if(IS_MOBILE){await window.msalApp.acquireTokenRedirect(req);return new Promise(()=>{});}
-    return (await window.msalApp.acquireTokenPopup(req)).accessToken;
+    if(!(await netProbe()))throw authErr("offline","offline");   // really no network — don't launch sign-in
+    if(IS_STANDALONE){showReauth();throw authErr("reauth","Sign-in expired");}
+    if(IS_MOBILE){                                                // mobile browser tab: redirect returns here fine
+      try{await window.msalApp.acquireTokenRedirect(req);}
+      catch(re){showReauth();throw authErr("reauth",re.message||"Sign-in failed");}
+      setTimeout(()=>showReauth(),5000);                          // navigation never happened — don't hang
+      return new Promise(()=>{});                                 // page is on its way to Microsoft
+    }
+    try{return (await window.msalApp.acquireTokenPopup(req)).accessToken;}
+    catch(pe){                                                    // blocked popup shouldn't look like "offline"
+      showReauth(/popup/i.test(pe.errorCode||pe.message||"")?"Your browser blocked the sign-in popup.":"");
+      throw authErr("reauth",pe.message||"Sign-in failed");
+    }
+  }
+}
+
+/* ---------------- re-auth banner ---------------- */
+function showReauth(msg){
+  const b=$("#reauth");if(!b)return;
+  $("#reauthMsg").textContent=msg||"Microsoft needs you to sign in again before your lists can load.";
+  b.style.display="flex";
+}
+function hideReauth(){const b=$("#reauth");if(b)b.style.display="none";}
+
+/* MSAL parks an "interaction_in_progress" flag when a redirect starts. If that
+   redirect never came back — exactly what happens when the PWA loses it to the
+   system browser — the flag survives and every later sign-in throws. Clear only
+   that key; the token cache next to it must stay. */
+function clearStuckInteraction(){
+  for(const store of [sessionStorage,localStorage]){
+    try{for(const k of Object.keys(store))if(/interaction\.status/.test(k))store.removeItem(k);}catch(e){}
+  }
+}
+async function doReauth(){
+  const btn=$("#reauthBtn");btn.disabled=true;btn.textContent="Opening Microsoft sign-in…";
+  const req={scopes:SCOPES,account:window.msalApp.getActiveAccount()||undefined};
+  try{
+    clearStuckInteraction();
+    if(IS_MOBILE){await window.msalApp.acquireTokenRedirect(req);return;}   // page navigates away from here
+    await window.msalApp.acquireTokenPopup(req);
+    hideReauth();await start();
+  }catch(e){
+    $("#reauthMsg").textContent="Sign-in failed: "+(e.message||e);
+  }finally{
+    if(document.visibilityState==="visible"){btn.disabled=false;btn.textContent="Tap to re-authenticate";}
+  }
+}
+/* The auth hop may have finished in a browser tab rather than in the PWA.
+   Chrome shares storage between the two, so MSAL's cache can already hold a
+   fresh token — a silent retry recovers without sending the user out again. */
+async function retryAuth(){
+  if(_retrying||!window.msalApp)return;
+  _retrying=true;
+  const btn=$("#reauthRetry");btn.disabled=true;btn.textContent="Checking…";
+  try{
+    const a=window.msalApp.getAllAccounts();
+    if(a.length&&!window.msalApp.getActiveAccount())window.msalApp.setActiveAccount(a[0]);
+    if(!window.msalApp.getActiveAccount())throw new Error("no account");
+    await window.msalApp.acquireTokenSilent({scopes:SCOPES,account:window.msalApp.getActiveAccount()});
+    hideReauth();await start();
+  }catch(e){
+    $("#reauthMsg").textContent="Still signed out — tap the button above to sign in again.";
+  }finally{
+    btn.disabled=false;btn.textContent="Already signed in? Retry";_retrying=false;
   }
 }
 async function gfetch(path,opts){
@@ -783,16 +888,29 @@ async function gfetch(path,opts){
 /* ---------------- data ---------------- */
 async function start(){
   show("loading"); wireUi(); loadOutbox(); loadTimers();
+  const seq0=_loadSeq;
   try{
     await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder();
-    offline=false; cacheData(); markSynced();
+    offline=false; _netProbe={ok:true,at:Date.now()}; hideReauth(); cacheData(); markSynced();
   }catch(e){
-    const snap=loadCache();
-    if(snap){                                   // no network → use the last saved snapshot
+    const snap=loadCache(), freshLists=_loadSeq>seq0&&LISTS.length;
+    if(freshLists&&!e.offline){
+      /* The lists themselves came back — only something after them failed.
+         Show the real lists rather than dropping to a stale snapshot.       */
+      offline=false;
+      if(e.reauth)showReauth("Your lists are loaded. Sign in again to sync everything.");
+      else error("Some data couldn't load: "+(e.message||e));
+    }else if(snap&&snap.lists&&snap.lists.length){   // fall back to the last saved snapshot
       LISTS=snap.lists; TASKS=snap.tasks; rebuildTags();
-      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS(); offline=true;
-    }else{                                       // never synced on this device yet
-      show("app"); error("Can't reach Microsoft, and no offline copy is saved yet. Connect once to load your tasks."); return;
+      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS();
+      offline=!e.reauth;                             // a token problem is not a network problem
+      if(e.reauth)showReauth("Showing your last saved copy. Sign in again to sync.");
+    }else{                                           // never synced on this device yet
+      show("app");
+      if(e.reauth)showReauth("Sign in again to load your lists.");
+      else if(e.offline)error("Can't reach Microsoft, and no offline copy is saved yet. Connect once to load your tasks.");
+      else error("Couldn't load your lists: "+(e.message||e));
+      return;
     }
   }
   outbox.forEach(applyOpLocal);                  // re-apply any unsynced local changes on top
@@ -802,13 +920,23 @@ async function start(){
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
-  LISTS=await pageAll("/me/todo/lists");
-  const all=[];
-  for(const L of LISTS){
-    const ts=await pageAll(`/me/todo/lists/${L.id}/tasks?$top=100&$expand=checklistItems`);
-    for(const t of ts){t._listId=L.id;t._listName=L.displayName;all.push(t);}
+  const lists=await pageAll("/me/todo/lists");   // throws before anything is committed
+  LISTS=lists; _loadSeq++;                       // from here on the sidebar has real lists to show
+  const all=[]; let failed=0;
+  for(const L of lists){
+    try{
+      const ts=await pageAll(`/me/todo/lists/${L.id}/tasks?$top=100&$expand=checklistItems`);
+      for(const t of ts){t._listId=L.id;t._listName=L.displayName;all.push(t);}
+    }catch(e){
+      if(e&&(e.offline||e.reauth))throw e;        // whole-session problem — start() handles it
+      failed++; console.warn("Couldn't load tasks for “"+L.displayName+"”",e);
+    }
   }
+  if(failed&&failed===lists.length)throw new Error("Couldn't load tasks from any list");
   TASKS=all; rebuildTags();
+  _partialLoad=failed>0;                          // keep the partial set off-screen only, never in the cache
+  if(_partialLoad)error(failed+" list"+(failed>1?"s":"")+" couldn't be loaded — use Refresh to try again.");
+  return failed;
 }
 function rebuildTags(){const s=new Set();for(const t of TASKS)parseTags(t.title||"").forEach(x=>s.add(x));TAGS=[...s].sort((a,b)=>a.localeCompare(b));}
 async function pageAll(path){let out=[],next=path;while(next){const j=await gfetch(next);out=out.concat(j.value||[]);next=j["@odata.nextLink"]||null;}return out;}
@@ -1184,9 +1312,28 @@ function inFocus(t,id){const l=focusById(id);return !!l&&l.taskIds.includes(t.id
 function anyFocus(t){return FOCUS.lists.some(l=>l.taskIds.includes(t.id));}
 
 /* ---------------- offline: data cache + write outbox ---------------- */
-function isOffline(){return !navigator.onLine;}
+/* navigator.onLine reports the radio, not reachability, and on Android it is
+   wrong often enough to have dropped the app into offline mode on a live
+   connection. Confirm with a cheap cross-origin request: the service worker
+   ignores other origins, so this can't be answered from cache. */
+const NET_TTL=45000;
+async function netProbe(){
+  try{
+    const c=new AbortController(), t=setTimeout(()=>c.abort(),5000);
+    try{await fetch(GRAPH+"/$metadata",{method:"HEAD",mode:"no-cors",cache:"no-store",signal:c.signal});}
+    finally{clearTimeout(t);}
+    _netProbe={ok:true,at:Date.now()};
+  }catch(e){_netProbe={ok:false,at:Date.now()};}
+  try{updateNetUI();}catch(e){}
+  return _netProbe.ok;
+}
+function isOffline(){
+  if(_netProbe.at&&Date.now()-_netProbe.at<NET_TTL)return !_netProbe.ok;   // a real probe outranks the flag
+  return !navigator.onLine;
+}
 function requireOnline(){if(isOffline()){toast("You're offline — reconnect to do that");return false;}return true;}
 function cacheData(){
+  if(!LISTS.length||_partialLoad)return;   // never overwrite a good cache with an empty or partial snapshot
   try{localStorage.setItem(LS_CACHE,JSON.stringify({savedAt:Date.now(),
     lists:LISTS.map(l=>({id:l.id,displayName:l.displayName})),tasks:TASKS}));}catch(e){/* quota — skip */}
 }
@@ -2043,8 +2190,22 @@ function dictate(on){                       // on:{partial,final,error,end} → 
      Desktop keeps continuous=true, where rebuild-from-all-finals already works well. */
   const android=/Android/i.test(navigator.userAgent||"");
   r.continuous=!android;
-  let committed="",sessionFinal="",stopped=false;
+  let committed="",sessionFinal="",stopped=false,ended=false,sawSpeech=false;
+  let silenceTimer=null,guardTimer=null;
+  /* Android self-restarts the recogniser after every pause (it won't honour continuous mode),
+     and each restart fires the device's start/stop earcon. Left unbounded it beeps on/off
+     forever — even after you've finished. So we auto-stop once the mic has gone quiet for a
+     stretch: SILENCE_MS after the last words, or NOSPEECH_MS if nothing was ever said. Desktop
+     keeps continuous mode and the manual Stop button (no auto-stop, no beeping to bound). */
+  const SILENCE_MS=3500, NOSPEECH_MS=8000;
   const full=()=>((committed?committed+" ":"")+sessionFinal).trim();
+  const clearTimers=()=>{if(silenceTimer){clearTimeout(silenceTimer);silenceTimer=null;}
+    if(guardTimer){clearTimeout(guardTimer);guardTimer=null;}};
+  const emitEnd=()=>{if(ended)return;ended=true;clearTimers();try{r.onend=null;}catch(_){}on.end&&on.end(full());};
+  // (Android) restart the quiet countdown; when it fires we stop ourselves as if Stop was tapped
+  const armSilence=()=>{if(!android||stopped||ended)return;
+    if(silenceTimer)clearTimeout(silenceTimer);
+    silenceTimer=setTimeout(()=>{stopped=true;try{r.stop();}catch(_){emitEnd();}},sawSpeech?SILENCE_MS:NOSPEECH_MS);};
   /* Rebuild the current session's transcript from e.results every time instead of appending
      the slice from e.resultIndex. Chrome on Android hands back resultIndex 0 on every event,
      so the append form re-added segments that were already final. Rebuilding is idempotent:
@@ -2057,6 +2218,8 @@ function dictate(on){                       // on:{partial,final,error,end} → 
       else interim+=res[0].transcript;
     }
     sessionFinal=fin;
+    if(fin||interim)sawSpeech=true;
+    armSilence();                            // heard something → reset the quiet countdown from now
     on.partial&&on.partial(full(),interim.trim());
   };
   r.onerror=e=>{
@@ -2064,19 +2227,27 @@ function dictate(on){                       // on:{partial,final,error,end} → 
     // A pause with no words (or an internal abort between restarts) is normal on Android —
     // don't surface it or stop; let onend restart the recogniser.
     if(!stopped&&(code==="no-speech"||code==="aborted"))return;
-    stopped=true;on.error&&on.error(code);
+    stopped=true;ended=true;clearTimers();try{r.onend=null;}catch(_){}on.error&&on.error(code);
   };
   r.onend=()=>{
     // fold this session's finals into the running transcript before deciding what's next
     if(sessionFinal){committed=(committed?committed+" ":"")+sessionFinal;sessionFinal="";}
-    if(stopped){on.end&&on.end(committed.trim());return;}
-    // user hasn't stopped → Android ended on a pause; start a fresh session and keep going
-    const kick=()=>{try{r.start();}catch(_){ if(!stopped){stopped=true;on.end&&on.end(committed.trim());} }};
-    try{r.start();}catch(_){setTimeout(()=>{if(!stopped)kick();},250);}
+    if(stopped)return emitEnd();
+    // user hasn't stopped → Android ended on a pause; start a fresh session and keep going.
+    // Don't re-arm the silence timer here: it must keep counting from the last actual words,
+    // otherwise a restart-per-pause would perpetually reset it and it could never fire.
+    const kick=()=>{try{r.start();}catch(_){emitEnd();}};
+    try{r.start();}catch(_){setTimeout(()=>{if(!stopped)kick();else emitEnd();},250);}
   };
-  try{r.start();}catch(e){on.error&&on.error("start");}
-  return{stop(){if(stopped){on.end&&on.end(full());return;}stopped=true;try{r.stop();}catch(_){on.end&&on.end(full());}},
-         abort(){stopped=true;try{r.abort();}catch(_){ }},
+  try{r.start();armSilence();}catch(e){on.error&&on.error("start");}
+  return{stop(){
+           if(stopped){emitEnd();return;}
+           stopped=true;clearTimers();
+           // Desktop Chrome sometimes never fires onend after stop() → force-finish so the mic
+           // can't hang and the text still comes out.
+           guardTimer=setTimeout(()=>{try{r.abort();}catch(_){}emitEnd();},1500);
+           try{r.stop();}catch(_){emitEnd();}},
+         abort(){stopped=true;ended=true;clearTimers();try{r.onend=null;r.abort();}catch(_){ }},
          text(){return full();}};
 }
 /* ---------------- Whisper: on-device transcription with punctuation ------------------
@@ -2248,11 +2419,13 @@ function openVoiceNote(t){
       .catch(e=>hardFail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
   });
 }
-/* PRIMARY transcriber (since the 2026-08-01 revert): the browser's live Web Speech recogniser
-   — real-time, fast, no model download. After you stop, the text drops into an editable box to
-   review/fix before Save. We ALSO record the mic audio in parallel so the review screen can
-   offer an optional "Refine with Whisper" pass (better punctuation) on that clip — opt-in, so
-   the ~40 MB model only downloads if you tap it. */
+/* PRIMARY transcriber: the browser's live Web Speech recogniser — real-time, fast, no model
+   download, all on-device. After you stop (or, on Android, after a few seconds of silence) the
+   text drops into an editable box to review/fix before Save.
+   NOTE: we deliberately do NOT open a parallel getUserMedia/MediaRecorder here. Doing so (the old
+   "Refine with Whisper" clip) grabbed a second handle on the mic, which on Android starves the
+   Web Speech recogniser so it hears nothing, and on desktop leaves the mic held after Stop. The
+   recogniser owns the mic alone now. Whisper stays only as the no-SpeechRecognition fallback. */
 function openVoiceNoteLive(t){
   showModal((card,close)=>{
     card.classList.add("voicecard");
@@ -2265,15 +2438,10 @@ function openVoiceNoteLive(t){
     card.append(mic,sub,view,ta,hint);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
-    const refineBtn=el("button","btn2 refine","Refine with Whisper");refineBtn.style.display="none";
     const save=el("button","btn2 primary","Save note");save.disabled=true;
-    foot.append(cancel,refineBtn,save);card.appendChild(foot);
-    card.appendChild(el("div","vmodel","Refine uses Whisper "+whisperTag()+" · on-device"));
+    foot.append(cancel,save);card.appendChild(foot);
 
-    let handle=null,done=false,reviewing=false,rec=null,recBlob=null,preRefine=null;
-    // record the audio alongside dictation (best-effort — if it fails, Refine just won't offer)
-    recordMic().then(h=>{if(done){try{h.cancel();}catch(_){}return;}rec=h;}).catch(()=>{rec=null;});
-    const releaseRec=()=>{if(rec){try{rec.cancel();}catch(_){}rec=null;}};
+    let handle=null,done=false,reviewing=false;
     const paint=(fin,int)=>{view.innerHTML="";
       if(fin)view.appendChild(document.createTextNode(fin));
       if(int){const s=el("span","interim"," "+int);view.appendChild(s);}
@@ -2283,21 +2451,8 @@ function openVoiceNoteLive(t){
       mic.style.display="none";view.style.display="none";ta.style.display="";hint.style.display="";
       ta.value=(txt||"").trim();sub.textContent=ta.value?"Review":"No speech — type your note";
       save.disabled=false;ta.focus();const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
-      if(rec){rec.stop().then(b=>{recBlob=b;if(b&&b.size&&whisperSupported())refineBtn.style.display="";}).catch(()=>{});rec=null;}
     };
-    const doRefine=async()=>{
-      if(!recBlob)return;refineBtn.disabled=true;
-      const restore=()=>{refineBtn.disabled=false;refineBtn.textContent=preRefine!==null?"Undo refine":"Refine with Whisper";refineBtn.onclick=preRefine!==null?undoRefine:doRefine;};
-      refineBtn.textContent="Refining…";
-      try{
-        const txt=await whisperTranscribe(recBlob,p=>{refineBtn.textContent="Loading model "+p+"%";});
-        if(txt){preRefine=ta.value;ta.value=txt;hint.textContent="Refined with Whisper — edit if needed, or undo.";}
-        else toast("Whisper heard no speech in that clip");
-      }catch(e){console.warn("Whisper refine failed",e);toast("Couldn't run Whisper — check your connection");}
-      restore();
-    };
-    const undoRefine=()=>{if(preRefine!==null){ta.value=preRefine;preRefine=null;}hint.textContent="Review & edit, then Save note.";refineBtn.textContent="Refine with Whisper";refineBtn.onclick=doRefine;ta.focus();};
-    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;releaseRec();
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
     const stopRec=()=>{if(reviewing)return;sub.textContent="Finishing…";mic.classList.remove("rec");if(handle)handle.stop();else toReview(view.textContent);};
     handle=dictate({
@@ -2310,9 +2465,8 @@ function openVoiceNoteLive(t){
       }
     });
     mic.onclick=stopRec;
-    refineBtn.onclick=doRefine;
     save.onclick=()=>{reviewing?commit():stopRec();};
-    cancel.onclick=()=>{done=true;if(handle)handle.abort();releaseRec();close();};
+    cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
   });
 }
 /* Mic that dictates into a textarea (used in the typed-note modal). Whisper records then
@@ -2479,7 +2633,7 @@ function wireUi(){
   $("#clearBtn").onclick=()=>{focusView=false;filter=defaultFilter();tagModeAll=true;starOnly=false;activeSaved=null;setTitle("All open");applyAndRender();};
   $("#saveBtn").onclick=saveCurrent;
   $("#filterBtn").onclick=()=>$("#filterPop").classList.contains("open")?closePop():openPop();
-  $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){error(isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
+  $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){if(!e.reauth)error(e.offline||isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
   $("#newListBtn").onclick=newList;
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
@@ -2499,7 +2653,7 @@ function wireUi(){
   $("#summaryBtn").onclick=openSummary;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
   $("#menuBtn").onclick=openSide;
-  $("#signOutBtn").onclick=()=>IS_MOBILE?window.msalApp.logoutRedirect():window.msalApp.logoutPopup();
+  $("#signOutBtn").onclick=()=>{hideReauth();clearStuckInteraction();return IS_MOBILE?window.msalApp.logoutRedirect():window.msalApp.logoutPopup();};
   $("#scrim").onclick=()=>{closePop();closeDetail();closeSide();closeMenu();};
   document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMenu();if(selMode){exitSelect();return;}const m=document.querySelector(".modal");if(m){closeModal(m);return;}closePop();closeDetail();closeSide();}});
 }
@@ -2510,8 +2664,18 @@ function show(id){["gate","noconfig","loading","app"].forEach(x=>$("#"+x).style.
 function error(msg){const h=$("#errHost");h.innerHTML="";h.appendChild(el("div","banner","⚠ "+msg));setTimeout(()=>{h.innerHTML="";},8000);}
 let toastTimer;function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),1900);}
 
-window.addEventListener("online",()=>{offline=false;updateNetUI();flushOutbox();toast("Back online — syncing");});
-window.addEventListener("offline",()=>{offline=true;updateNetUI();});
+window.addEventListener("online",async()=>{
+  if(!(await netProbe()))return;                 // the event fires before the link is usable often enough
+  offline=false;updateNetUI();flushOutbox();toast("Back online — syncing");
+});
+window.addEventListener("offline",()=>{offline=true;_netProbe={ok:false,at:Date.now()};updateNetUI();});
+/* Coming back to the PWA after an auth hop that Chrome may have run in the
+   browser instead: MSAL's cache is shared, so a silent retry usually recovers. */
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible")return;
+  const b=$("#reauth");
+  if(b&&b.style.display!=="none"&&window.msalApp)retryAuth();
+});
 setInterval(()=>{try{updateSyncHdr();}catch(e){}},60000);   // keep the "synced X ago" label fresh
 boot();
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
