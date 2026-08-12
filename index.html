@@ -747,6 +747,23 @@ let selMode=false, selected=new Set(), _selIds=[], _selAnchor=null;   // multise
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
 function defaultFilter(){return{lists:[],exLists:[],due:"any",dateA:"",dateB:"",status:"open",text:"",tags:[],exTags:[]};}
+/* Remember which view (built-in, real list, saved smart list, or focus list) is
+   open so a refresh — routine on a mobile PWA — reopens it instead of snapping back
+   to "All open". We persist only a {type,id}; on load restoreView() finds the matching
+   sidebar button and replays its click, so every existing selection path is reused. */
+const LS_VIEW="smarttodo.view.v1";
+function saveView(type,id){try{localStorage.setItem(LS_VIEW,JSON.stringify({type,id:String(id)}));}catch(_){}}
+function restoreView(){
+  let v=null;try{v=JSON.parse(localStorage.getItem(LS_VIEW)||"null");}catch(_){}
+  if(!v||!v.type)return false;
+  if(v.type==="builtin"&&v.id==="b_open")return false;         // that's the default — nothing to restore
+  const attr={builtin:"nav",list:"list",saved:"saved",focus:"focus"}[v.type];
+  if(!attr)return false;
+  const btn=[...document.querySelectorAll(".navbtn")].find(b=>b.dataset[attr]===v.id);
+  if(!btn)return false;                                         // list/view was deleted — fall back to default
+  btn.click();
+  return true;
+}
 
 const IC={
   open:'<path d="M9 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-4M9 11V7a3 3 0 0 1 6 0v4M9 11h6"/>',
@@ -887,7 +904,24 @@ async function gfetch(path,opts){
 
 /* ---------------- data ---------------- */
 async function start(){
-  show("loading"); wireUi(); loadOutbox(); loadTimers();
+  wireUi(); loadOutbox(); loadTimers();
+  /* INSTANT PAINT: if we already have a cached snapshot, show the app from it right
+     away — reopening the remembered view — instead of blocking on a spinner while the
+     lists/tasks round-trip (slow on mobile). Fresh data then loads below and re-renders. */
+  let prePainted=false;
+  const snap0=loadCache();
+  if(snap0&&snap0.lists&&snap0.lists.length){
+    LISTS=snap0.lists; TASKS=snap0.tasks; rebuildTags();
+    window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS();
+    outbox.forEach(applyOpLocal);
+    reindexOrder(); sortKey=localStorage.getItem(LS_SORT)||sortKey;
+    renderNav(); renderSaved(); renderFilterControls();
+    if(!restoreView())applyAndRender();
+    show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
+    prePainted=true;
+  }else{
+    show("loading");
+  }
   const seq0=_loadSeq;
   try{
     await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder();
@@ -904,9 +938,9 @@ async function start(){
       LISTS=snap.lists; TASKS=snap.tasks; rebuildTags();
       window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS();
       offline=!e.reauth;                             // a token problem is not a network problem
-      if(e.reauth)showReauth("Showing your last saved copy. Sign in again to sync.");
+      if(e.reauth)showReauth(prePainted?"":"Showing your last saved copy. Sign in again to sync.");
     }else{                                           // never synced on this device yet
-      show("app");
+      if(!prePainted)show("app");
       if(e.reauth)showReauth("Sign in again to load your lists.");
       else if(e.offline)error("Can't reach Microsoft, and no offline copy is saved yet. Connect once to load your tasks.");
       else error("Couldn't load your lists: "+(e.message||e));
@@ -915,23 +949,34 @@ async function start(){
   }
   outbox.forEach(applyOpLocal);                  // re-apply any unsynced local changes on top
   reindexOrder(); sortKey=localStorage.getItem(LS_SORT)||sortKey;
-  renderNav(); renderFilterControls(); applyAndRender();
+  renderNav(); renderSaved(); renderFilterControls();
+  if(prePainted)applyAndRender();                // keep the view the user is already on
+  else if(!restoreView())applyAndRender();       // first paint on this device — honour any remembered view
   show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
   const lists=await pageAll("/me/todo/lists");   // throws before anything is committed
   LISTS=lists; _loadSeq++;                       // from here on the sidebar has real lists to show
-  const all=[]; let failed=0;
-  for(const L of lists){
+  /* Fetch every list's tasks IN PARALLEL rather than one-after-another. On mobile
+     the old serial loop waited for the sum of every list's latency; this waits for
+     just the slowest, which is the biggest win against first-load lag. Graph tokens
+     are cached by MSAL, so the concurrent gfetch calls don't each re-authenticate. */
+  let failed=0, fatal=null;
+  const results=await Promise.all(lists.map(async L=>{
     try{
       const ts=await pageAll(`/me/todo/lists/${L.id}/tasks?$top=100&$expand=checklistItems`);
-      for(const t of ts){t._listId=L.id;t._listName=L.displayName;all.push(t);}
+      for(const t of ts){t._listId=L.id;t._listName=L.displayName;}
+      return ts;
     }catch(e){
-      if(e&&(e.offline||e.reauth))throw e;        // whole-session problem — start() handles it
+      if(e&&(e.offline||e.reauth)){fatal=fatal||e;return null;}   // whole-session problem — surface it below
       failed++; console.warn("Couldn't load tasks for “"+L.displayName+"”",e);
+      return null;
     }
-  }
+  }));
+  if(fatal)throw fatal;                            // start() handles offline / reauth
+  const all=[];
+  results.forEach(ts=>{if(ts)for(const t of ts)all.push(t);});
   if(failed&&failed===lists.length)throw new Error("Couldn't load tasks from any list");
   TASKS=all; rebuildTags();
   _partialLoad=failed>0;                          // keep the partial set off-screen only, never in the cache
@@ -1173,7 +1218,7 @@ function renderNav(){
   for(const v of BUILTINS){
     const btn=el("button","navbtn");btn.dataset.nav=v.id;
     btn.innerHTML=`<span class="ic">${svg(v.icon)}</span><span class="lbl">${v.name}</span><span class="ct"></span>`;
-    btn.onclick=()=>{focusView=false;filter=v.f();starOnly=!!v.star;if(v.sort)sortKey=v.sort;activeSaved=null;setTitle(v.name);applyAndRender();closeSide();};
+    btn.onclick=()=>{focusView=false;filter=v.f();starOnly=!!v.star;if(v.sort)sortKey=v.sort;activeSaved=null;saveView("builtin",v.id);setTitle(v.name);applyAndRender();closeSide();};
     b.appendChild(btn);
   }
   const ln=$("#listNav");ln.innerHTML="";
@@ -1182,7 +1227,7 @@ function renderNav(){
     const btn=el("button","navbtn");btn.dataset.list=L.id;
     btn.innerHTML=`<span class="ic">${svg(IC.list)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=L.displayName;
-    btn.onclick=()=>{focusView=false;filter={...defaultFilter(),lists:[L.id]};starOnly=false;activeSaved=null;setTitle(L.displayName);applyAndRender();closeSide();};
+    btn.onclick=()=>{focusView=false;filter={...defaultFilter(),lists:[L.id]};starOnly=false;activeSaved=null;saveView("list",L.id);setTitle(L.displayName);applyAndRender();closeSide();};
     const x=el("button","row-x");x.innerHTML=svg(IC.check).replace(IC.check,'<path d="M18 6 6 18M6 6l12 12"/>');x.title="Rename / delete list";
     x.onclick=e=>{e.stopPropagation();listMenu(L);};
     rowd.appendChild(btn);rowd.appendChild(x);ln.appendChild(rowd);
@@ -1450,7 +1495,7 @@ function moveInFocus(id,taskId,dir){         // works on what's on screen, so st
   [ids[i],ids[j]]=[ids[j],ids[i]];
   resequence(l.taskIds,ids);saveFocus();renderFocusView();
 }
-function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();closeSide();}
+function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;saveView("focus",id);const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();closeSide();}
 
 function renderFocusNav(){
   const box=$("#focusNav");if(!box)return;box.innerHTML="";
@@ -1743,7 +1788,7 @@ function renderSaved(){
     const btn=el("button","navbtn");btn.dataset.saved=s.id;
     btn.innerHTML=`<span class="ic">${svg(IC.star)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=s.name;
-    btn.onclick=()=>{focusView=false;filter=JSON.parse(JSON.stringify(s.filter));tagModeAll=s.tagModeAll!==false;starOnly=false;activeSaved=s.id;setTitle(s.name);applyAndRender();closeSide();};
+    btn.onclick=()=>{focusView=false;filter=JSON.parse(JSON.stringify(s.filter));tagModeAll=s.tagModeAll!==false;starOnly=false;activeSaved=s.id;saveView("saved",s.id);setTitle(s.name);applyAndRender();closeSide();};
     const x=el("button","row-x");x.innerHTML='<svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M18 6 6 18M6 6l12 12"/></svg>';x.title="Delete smart list";
     x.onclick=async e=>{e.stopPropagation();if(confirm(`Delete smart list “${s.name}”?`)){window._saved=window._saved.filter(x=>x.id!==s.id);await persistSaved();renderSaved();}};
     rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
@@ -2630,7 +2675,7 @@ function wireUi(){
   $("#sortBy").onchange=e=>{sortKey=e.target.value;localStorage.setItem(LS_SORT,sortKey);
     if(sortKey==="manual")toast(IS_MOBILE?"Drag with the ⣿ handle, or use ↑ ↓":"Drag tasks to reorder");
     applyAndRender();};
-  $("#clearBtn").onclick=()=>{focusView=false;filter=defaultFilter();tagModeAll=true;starOnly=false;activeSaved=null;setTitle("All open");applyAndRender();};
+  $("#clearBtn").onclick=()=>{focusView=false;filter=defaultFilter();tagModeAll=true;starOnly=false;activeSaved=null;saveView("builtin","b_open");setTitle("All open");applyAndRender();};
   $("#saveBtn").onclick=saveCurrent;
   $("#filterBtn").onclick=()=>$("#filterPop").classList.contains("open")?closePop():openPop();
   $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){if(!e.reauth)error(e.offline||isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};

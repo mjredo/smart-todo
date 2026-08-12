@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v14";   // bump: reliable direct-to-speech (Android silence auto-stop, PC stop-guard, no parallel mic)
+const CACHE = "smarttodo-v15";   // bump: instant paint from cache + remembered view + parallel list load (faster first load)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
