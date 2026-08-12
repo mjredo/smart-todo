@@ -1247,6 +1247,7 @@ function updateNavCounts(){
   $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=c[b.dataset.nav]||"");
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
   updateFocusCounts();
+  updateSavedCounts();
 }
 function reflectActiveNav(){$$(".navbtn").forEach(b=>b.classList.remove("active"));if(activeSaved){const s=$(`[data-saved="${activeSaved}"]`);if(s)s.classList.add("active");}}
 
@@ -1793,6 +1794,12 @@ function renderSaved(){
     x.onclick=async e=>{e.stopPropagation();if(confirm(`Delete smart list “${s.name}”?`)){window._saved=window._saved.filter(x=>x.id!==s.id);await persistSaved();renderSaved();}};
     rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
   }
+  updateSavedCounts();
+}
+/* Recompute the sidebar badge for every saved smart list. Runs on each render
+   cycle (via updateNavCounts) so the counts stay in step with the header, which
+   recomputes the same TASKS.filter(matches) every applyAndRender. */
+function updateSavedCounts(){
   for(const s of (window._saved||[])){const sa=activeSaved,sm=tagModeAll,sf=filter,so=starOnly;filter=s.filter;tagModeAll=s.tagModeAll!==false;starOnly=false;const n=TASKS.filter(matches).length;filter=sf;tagModeAll=sm;activeSaved=sa;starOnly=so;const b=$(`[data-saved="${s.id}"] .ct`);if(b)b.textContent=n||"";}
 }
 async function saveCurrent(){
