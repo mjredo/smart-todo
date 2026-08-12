@@ -2424,7 +2424,7 @@ async function whisperTranscribe(blob,onProgress){
 function openVoiceNote(t){
   if(!voiceReady())return;
   if(!useWhisper())return openVoiceNoteLive(t);
-  showModal((card,close)=>{
+  showModal((card,close,onClose)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
     const sub=el("div","vstate","Recording…");
@@ -2467,6 +2467,7 @@ function openVoiceNote(t){
     mic.onclick=stopRec;
     save.onclick=()=>{reviewing?commit():stopRec();};
     cancel.onclick=()=>{done=true;if(rec)rec.cancel();close();};
+    onClose(()=>{done=true;if(rec)rec.cancel();});         // Escape / backdrop close must free the mic too
     recordMic().then(h=>{if(done){h.cancel();return;}rec=h;})
       .catch(e=>hardFail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
   });
@@ -2479,7 +2480,7 @@ function openVoiceNote(t){
    Web Speech recogniser so it hears nothing, and on desktop leaves the mic held after Stop. The
    recogniser owns the mic alone now. Whisper stays only as the no-SpeechRecognition fallback. */
 function openVoiceNoteLive(t){
-  showModal((card,close)=>{
+  showModal((card,close,onClose)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
     const sub=el("div","vstate","Listening…");
@@ -2519,6 +2520,7 @@ function openVoiceNoteLive(t){
     mic.onclick=stopRec;
     save.onclick=()=>{reviewing?commit():stopRec();};
     cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
+    onClose(()=>{done=true;if(handle)handle.abort();});   // Escape / backdrop close must free the mic too
   });
 }
 /* Mic that dictates into a textarea (used in the typed-note modal). Whisper records then
@@ -2559,6 +2561,9 @@ function attachMic(btn,ta){
     try{rec=await recordMic();btn.classList.add("rec");label("Stop");loadWhisper().catch(()=>{});}   // warm the model while recording
     catch(e){toast(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone");}
   };
+  // Teardown for the caller to run when its modal closes any way (Escape/backdrop), so an
+  // in-progress dictation or recording can't keep the mic after the modal is gone.
+  return ()=>{try{if(live)live.abort();}catch(_){}try{if(rec)rec.cancel();}catch(_){}live=rec=null;reset();};
 }
 
 function nowStamp(){return new Date().toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}
@@ -2583,14 +2588,20 @@ function prependNote(t,txt,person,loc){
 }
 function showModal(build){
   const wrap=el("div","modal");const card=el("div","modalcard");
-  build(card,()=>closeModal(wrap));
+  // The builder may register a teardown via the 3rd arg; it runs on EVERY close path
+  // (button, backdrop click, Escape) so a live mic/recogniser can't be orphaned. See closeModal.
+  build(card,()=>closeModal(wrap),fn=>{wrap._onClose=fn;});
   wrap.appendChild(card);wrap.onclick=e=>{if(e.target===wrap)closeModal(wrap);};
   document.body.appendChild(wrap);requestAnimationFrame(()=>wrap.classList.add("open"));
   return wrap;
 }
-function closeModal(w){w.classList.remove("open");setTimeout(()=>w.remove(),180);}
+function closeModal(w){
+  if(w._closed)return;w._closed=true;                     // guard: close is reachable 3 ways, run teardown once
+  if(w._onClose){try{w._onClose();}catch(_){}w._onClose=null;}
+  w.classList.remove("open");setTimeout(()=>w.remove(),180);
+}
 function openNoteEntry(t){
-  showModal((card,close)=>{
+  showModal((card,close,onClose)=>{
     card.innerHTML=`<div class="mtitle">New note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
     // person / site (optional, with recent-values memory)
     const who=el("input","minput");who.type="text";who.placeholder="Person / site (optional)";who.setAttribute("list","peopleList");
@@ -2600,7 +2611,7 @@ function openNoteEntry(t){
     const ta=el("textarea","mnote");ta.placeholder="Type your note…  (Ctrl/⌘+Enter to save)";card.appendChild(ta);
     const micRow=el("div","locrow");
     const micB=el("button","notebtn micbtn");micB.innerHTML=svg(IC.mic)+"<span>Speak</span>";
-    attachMic(micB,ta);micRow.appendChild(micB);card.appendChild(micRow);
+    onClose(attachMic(micB,ta));micRow.appendChild(micB);card.appendChild(micRow);
     // optional location stamp (default off)
     let loc=null;
     const locRow=el("div","locrow");
