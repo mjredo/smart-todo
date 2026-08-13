@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v16";   // bump: consistent focus-list pin menu + touch drag-reorder on Android
+const CACHE = "smarttodo-v17";   // bump: fix focus-list reorder duplicating tasks (re-render-safe drag) + self-heal duplicate ids
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",

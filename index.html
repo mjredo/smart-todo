@@ -1114,7 +1114,7 @@ function timerBtn(t){
   b.onclick=e=>{e.stopPropagation();on?stopTimer(t.id,true):startTimer(t);};
   return b;
 }
-let _dragId=null,_dragEndAt=0;
+let _dragId=null,_dragEndAt=0,_focusDrag=false;
 /* commit(idsInNewOrder) decides where the new sequence is stored — the global
    manual order in the task list, or the focus list's own taskIds. */
 function wireDrag(row,t,commit){
@@ -1149,31 +1149,39 @@ function wireGripDrag(grip,row,commit){
     if(e.button&&e.button!==0)return;                   // primary button / any touch only
     e.preventDefault();e.stopPropagation();
     const box=$("#taskList"),scroller=row.closest(".scroll")||box;
-    let moved=false,lastY=e.clientY,raf=0;
+    let moved=false,lastY=e.clientY,raf=0,done=false;
+    _focusDrag=true;                                    // freeze background re-renders so the row can't be torn out mid-drag
     row.classList.add("dragging");
     try{grip.setPointerCapture(e.pointerId);}catch(_){}
     const place=y=>{                                    // insert row before the first sibling whose midpoint is below y
+      if(row.parentElement!==box)return;                // safety: never re-insert a detached row (that duplicated ids)
       const sibs=[...box.children].filter(c=>c!==row&&c.classList&&c.classList.contains("task"));
       let before=null;
       for(const s of sibs){const r=s.getBoundingClientRect();if(y<r.top+r.height/2){before=s;break;}}
       if(before){if(row.nextSibling!==before)box.insertBefore(row,before);}
       else if(box.lastElementChild!==row)box.appendChild(row);
     };
+    const finish=save=>{                                // single teardown path — runs exactly once
+      if(done)return;done=true;
+      cancelAnimationFrame(raf);
+      grip.removeEventListener("pointermove",onMove);
+      grip.removeEventListener("pointerup",onUp);
+      grip.removeEventListener("pointercancel",onUp);
+      row.classList.remove("dragging");_dragEndAt=Date.now();_focusDrag=false;
+      if(save&&moved&&row.parentElement===box){
+        const seen=new Set();                           // dedupe defends the stored order even if the DOM ever repeats an id
+        commit([...box.children].map(c=>c.dataset.id).filter(id=>id&&!seen.has(id)&&seen.add(id)));
+      }else if(save&&moved){commit(null);}              // row got detached: re-render from unchanged data, don't persist a bad order
+    };
     const tick=()=>{                                    // auto-scroll while the finger rests near an edge
+      if(row.parentElement!==box){finish(true);return;} // a re-render slipped through: bail cleanly
       const r=scroller.getBoundingClientRect(),m=48;
       if(lastY<r.top+m)scroller.scrollTop-=Math.min(16,(r.top+m-lastY)/2);
       else if(lastY>r.bottom-m)scroller.scrollTop+=Math.min(16,(lastY-(r.bottom-m))/2);
       place(lastY);raf=requestAnimationFrame(tick);
     };
     const onMove=ev=>{moved=true;lastY=ev.clientY;place(lastY);};
-    const onUp=()=>{
-      cancelAnimationFrame(raf);
-      grip.removeEventListener("pointermove",onMove);
-      grip.removeEventListener("pointerup",onUp);
-      grip.removeEventListener("pointercancel",onUp);
-      row.classList.remove("dragging");_dragEndAt=Date.now();
-      if(moved)commit([...box.children].map(c=>c.dataset.id).filter(Boolean));
-    };
+    const onUp=()=>finish(true);
     grip.addEventListener("pointermove",onMove);
     grip.addEventListener("pointerup",onUp);
     grip.addEventListener("pointercancel",onUp);
@@ -1343,9 +1351,10 @@ function cycleList(id){                          // none → include → exclude
 }
 
 /* ---------------- Focus lists (multiple, named, ordered; synced via OneDrive, NOT To Do) ---------------- */
-function normalizeFocus(raw){
-  if(Array.isArray(raw))return{version:2,lists:raw.length?[{id:"f_default",name:"Focus",taskIds:raw.slice()}]:[]};   // migrate old single-list shape
-  if(raw&&Array.isArray(raw.lists))return{version:2,lists:raw.lists.map(l=>({id:l.id,name:l.name,taskIds:Array.isArray(l.taskIds)?l.taskIds.slice():[]}))};
+const uniqIds=a=>{const s=new Set(),o=[];(a||[]).forEach(id=>{if(id&&!s.has(id)){s.add(id);o.push(id);}});return o;};
+function normalizeFocus(raw){                            // uniqIds heals lists a past drag bug left with duplicate taskIds
+  if(Array.isArray(raw))return{version:2,lists:raw.length?[{id:"f_default",name:"Focus",taskIds:uniqIds(raw)}]:[]};   // migrate old single-list shape
+  if(raw&&Array.isArray(raw.lists))return{version:2,lists:raw.lists.map(l=>({id:l.id,name:l.name,taskIds:uniqIds(l.taskIds)}))};
   return{version:2,lists:[]};
 }
 function readFocusLS(){try{return normalizeFocus(JSON.parse(localStorage.getItem(LS_FOCUS)||"null"));}catch{return{version:2,lists:[]};}}
@@ -1379,6 +1388,7 @@ function ensureRanked(rows){                            // give newly-seen tasks
    occupy in the stored order, but get re-dealt into the new sequence. Anything not
    on screen (filtered out, or an id whose task is gone) never moves. */
 function resequence(arr,ids){
+  ids=uniqIds(ids);                                    // a repeated id must never be dealt into two slots
   const want=new Set(ids), slots=[];
   arr.forEach((id,i)=>{if(want.has(id))slots.push(i);});
   for(const id of ids)if(!arr.includes(id)){arr.push(id);slots.push(arr.length-1);}
@@ -1564,6 +1574,7 @@ function focusListMenu(l){
   if(name.trim()&&name.trim()!==l.name)renameFocusList(l.id,name.trim());
 }
 function renderFocusView(){
+  if(_focusDrag)return;                                 // a drag owns the DOM right now — a background sync must not rebuild it mid-drag
   $$(".navbtn").forEach(b=>b.classList.remove("active"));
   const fb=$(`[data-focus="${activeFocusId}"]`);if(fb)fb.classList.add("active");
   $("#filterBadge").style.display="none";
