@@ -1139,6 +1139,47 @@ function wireDrag(row,t,commit){
     commit([...box.children].map(c=>c.dataset.id).filter(Boolean));};
 }
 function gripEl(){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder";return g;}
+/* Pointer-based reorder driven from the grip handle. Native HTML5 drag events
+   (used by wireDrag) never fire on touchscreens, so Android couldn't drag at all;
+   Pointer Events unify mouse + touch, so this works on both. The row is moved live
+   among its siblings and the scroller auto-pans near its edges. */
+function wireGripDrag(grip,row,commit){
+  grip.style.touchAction="none";                       // let us drive the drag instead of scrolling
+  grip.addEventListener("pointerdown",e=>{
+    if(e.button&&e.button!==0)return;                   // primary button / any touch only
+    e.preventDefault();e.stopPropagation();
+    const box=$("#taskList"),scroller=row.closest(".scroll")||box;
+    let moved=false,lastY=e.clientY,raf=0;
+    row.classList.add("dragging");
+    try{grip.setPointerCapture(e.pointerId);}catch(_){}
+    const place=y=>{                                    // insert row before the first sibling whose midpoint is below y
+      const sibs=[...box.children].filter(c=>c!==row&&c.classList&&c.classList.contains("task"));
+      let before=null;
+      for(const s of sibs){const r=s.getBoundingClientRect();if(y<r.top+r.height/2){before=s;break;}}
+      if(before){if(row.nextSibling!==before)box.insertBefore(row,before);}
+      else if(box.lastElementChild!==row)box.appendChild(row);
+    };
+    const tick=()=>{                                    // auto-scroll while the finger rests near an edge
+      const r=scroller.getBoundingClientRect(),m=48;
+      if(lastY<r.top+m)scroller.scrollTop-=Math.min(16,(r.top+m-lastY)/2);
+      else if(lastY>r.bottom-m)scroller.scrollTop+=Math.min(16,(lastY-(r.bottom-m))/2);
+      place(lastY);raf=requestAnimationFrame(tick);
+    };
+    const onMove=ev=>{moved=true;lastY=ev.clientY;place(lastY);};
+    const onUp=()=>{
+      cancelAnimationFrame(raf);
+      grip.removeEventListener("pointermove",onMove);
+      grip.removeEventListener("pointerup",onUp);
+      grip.removeEventListener("pointercancel",onUp);
+      row.classList.remove("dragging");_dragEndAt=Date.now();
+      if(moved)commit([...box.children].map(c=>c.dataset.id).filter(Boolean));
+    };
+    grip.addEventListener("pointermove",onMove);
+    grip.addEventListener("pointerup",onUp);
+    grip.addEventListener("pointercancel",onUp);
+    raf=requestAnimationFrame(tick);
+  });
+}
 function renderTasks(rows){
   const box=$("#taskList");box.innerHTML="";box.classList.toggle("selmode",selMode);
   if(!rows.length){box.innerHTML=`<div class="empty">${svg(IC.inbox)}<div>No tasks match this view.</div></div>`;return;}
@@ -1541,10 +1582,11 @@ function renderFocusView(){
     const row=el("div","task"+(t.status==="completed"?" done":"")+(t._pending?" _pend":""));
     row.dataset.id=t.id;
     /* a focus list is hand-ordered by definition, so dragging is always on here —
-       it reorders this list's own taskIds, never the global "My order" */
-    wireDrag(row,t,newIds=>{
+       it reorders this list's own taskIds, never the global "My order". Wired below
+       from the grip via pointer events so it works on touch (Android) and mouse alike. */
+    const commitOrder=newIds=>{
       const fl=focusById(activeFocusId);if(!fl)return;
-      resequence(fl.taskIds,newIds);saveFocus();renderFocusView();});
+      resequence(fl.taskIds,newIds);saveFocus();renderFocusView();};
     const ck=el("button","ck");ck.innerHTML=svg(IC.check);ck.onclick=e=>{e.stopPropagation();toggleDone(t);};
     const body=el("div","tbody");
     const title=el("div","ttitle");title.innerHTML=hlTags(t.title||"(untitled)");body.appendChild(title);
@@ -1557,10 +1599,10 @@ function renderFocusView(){
     const ctrl=el("div","freorder");
     const up=el("button","fbtn");up.innerHTML=svg(IC.up);up.disabled=idx===0;up.title="Move up";up.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,-1);};
     const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";dn.onclick=e=>{e.stopPropagation();moveInFocus(activeFocusId,t.id,1);};
-    const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Remove from this list";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();toggleFocusMember(t,activeFocusId);};
+    const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Add to / remove from focus lists";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();openFocusMenu(rm,t);};
     ctrl.appendChild(up);ctrl.appendChild(dn);ctrl.appendChild(rm);
     row.appendChild(ck);
-    if(!IS_MOBILE)row.appendChild(gripEl());
+    const grip=gripEl();wireGripDrag(grip,row,commitOrder);row.appendChild(grip);
     row.appendChild(body);
     if(t.status!=="completed")row.appendChild(timerBtn(t));
     row.appendChild(ctrl);
