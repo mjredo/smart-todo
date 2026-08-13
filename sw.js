@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v15";   // bump: instant paint from cache + remembered view + parallel list load (faster first load)
+const CACHE = "smarttodo-v16";   // bump: consistent focus-list pin menu + touch drag-reorder on Android
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
