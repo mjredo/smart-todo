@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local `npm run dev`. Never commit the real file.
+DS_ENV=demo
+DS_INTEGRATION_KEY=00000000-0000-0000-0000-000000000000
+DS_USER_ID=00000000-0000-0000-0000-000000000000
+DS_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----"
+
+# Leave these unset locally; set them in production once Access is configured.
+# ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+# ACCESS_AUD=<Application Audience tag from the Access app>

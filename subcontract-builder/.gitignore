@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store
+
+# Never commit the real vendor directory: it carries contacts, licence numbers and
+# tax IDs. It lives in the KV namespace; use "Import backup" in the tool to load it once.
+vendor_directory.json
+public/vendor_directory.json
+subcontract_directory.json
+*.pem
+*.key

@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subcontract Agreement Builder</title>
+<!-- Word engine. Loaded from the local "lib" folder next to this file so it works with no
+     internet. (The old cdnjs docx URL returned 404, which is why Download Word never worked.)
+     If the local copies ever go missing, we fall back to unpkg. -->
+<script src="lib/docx.umd.js"></script>
+<script src="lib/FileSaver.min.js"></script>
+<script>
+(function(){
+  if(typeof docx==="undefined")
+    document.write('<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"><\/script>');
+  if(typeof saveAs==="undefined")
+    document.write('<script src="https://unpkg.com/file-saver@2.0.5/dist/FileSaver.min.js"><\/script>');
+})();
+</script>
+<style>
+  :root{--bg:#f4f6f9;--card:#fff;--ink:#1f2733;--mut:#5b6b7d;--line:#dde3ea;--brand:#1f5f8b;--brand2:#16405e;--ok:#1d8a4d;--warn:#c2410c;--bad:#b91c1c;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{background:linear-gradient(135deg,var(--brand2),var(--brand));color:#fff;padding:18px 24px;position:sticky;top:0;z-index:50;box-shadow:0 2px 10px rgba(0,0,0,.15)}
+  header h1{margin:0;font-size:19px;font-weight:650}
+  header p{margin:3px 0 0;font-size:12.5px;opacity:.85}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .wrap{max-width:1000px;margin:22px auto;padding:0 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .card h2{margin:0 0 4px;font-size:16px;color:var(--brand2);display:flex;align-items:center;gap:8px}
+  .card .hint{color:var(--mut);font-size:12.5px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+  .grid.three{grid-template-columns:1fr 1fr 1fr}
+  label{display:block;font-size:12px;font-weight:600;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em}
+  input[type=text],input[type=number],input[type=date],input[type=email],textarea,select{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fcfdfe;color:var(--ink)}
+  textarea{resize:vertical;min-height:64px}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(31,95,139,.12)}
+  .full{grid-column:1/-1}
+  button{font:inherit;font-weight:600;border:none;border-radius:8px;padding:9px 15px;cursor:pointer;transition:.15s}
+  .btn{background:var(--brand);color:#fff}.btn:hover{background:var(--brand2)}
+  .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  .btn.ghost:hover{background:#eef4f9}
+  .btn.sm{padding:6px 11px;font-size:13px}
+  .btn.head{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.4)}
+  .btn.head:hover{background:rgba(255,255,255,.26)}
+  .btn.x{background:#fff;color:var(--bad);border:1px solid #f0c9c9;padding:6px 10px}
+  .btn.x:hover{background:#fdecec}
+  .scope-row,.ms-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px}
+  .scope-row input[type=checkbox]{margin-top:11px;width:17px;height:17px;flex:0 0 auto;accent-color:var(--brand)}
+  .scope-row textarea{min-height:38px}
+  table.ms{width:100%;border-collapse:collapse}
+  .ms-head{display:grid;grid-template-columns:1fr 90px 130px 38px;gap:8px;font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;margin-bottom:6px;padding:0 2px}
+  .ms-row{display:grid;grid-template-columns:1fr 90px 130px 38px;gap:8px;align-items:center}
+  .ms-row .xwrap{display:flex;justify-content:center}
+  .totbar{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding:10px 12px;border-radius:8px;background:#f0f5f9;font-size:14px}
+  .totbar b{font-size:15px}
+  .pill{font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .pill.ok{background:#dcf4e6;color:var(--ok)}
+  .pill.warn{background:#fde9d8;color:var(--warn)}
+  .out{white-space:pre-wrap;background:#0f1b27;color:#d7e3ee;border-radius:8px;padding:14px;font:12.5px/1.55 ui-monospace,Menlo,Consolas,monospace;max-height:340px;overflow:auto}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:8px;opacity:0;transition:.25s;z-index:200;font-size:14px}
+  .toast.show{opacity:1}
+  details summary{cursor:pointer;font-weight:600;color:var(--brand)}
+  .muted{color:var(--mut);font-size:12.5px}
+  .addbtn{margin-top:4px}
+  @media(max-width:680px){.grid,.grid.three{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Subcontract Agreement Builder</h1>
+  <p>Fill in the project details &rarr; generate a ready-to-sign Word or PDF contract &rarr; send the insurance request email.</p>
+  <div class="bar">
+    <button class="btn head" onclick="genDocx()">&#11015; Download Word (.docx)</button>
+    <button class="btn head" onclick="window.print()">&#128424; Print / Save as PDF</button>
+    <button class="btn head" onclick="saveProject()">&#128190; Save project</button>
+    <button class="btn head" onclick="document.getElementById('loadFile').click()">&#128193; Load project</button>
+    <input type="file" id="loadFile" accept="application/json" style="display:none" onchange="loadProject(event)">
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- PARTIES -->
+  <div class="card">
+    <h2>1 &middot; Parties &amp; Date</h2>
+    <p class="hint">The <b>Contractor</b> is usually the project-specific LLC (e.g. "1811 Clark Lane LLC"). Pick a saved entity or type the site address and click <b>Use address LLC</b>. The General Contractor defaults to MAB Properties Inc.</p>
+    <div class="grid">
+      <div><label>Agreement date</label><input type="date" id="aDate"></div>
+      <div><label>Workers' Comp state (Sec. 16.3)</label><input type="text" id="wcState" value="California"></div>
+      <div><label>Contractor (project entity / LLC)</label><input type="text" id="contractor" placeholder="e.g. 1811 Clark Lane LLC"></div>
+      <div>
+        <label>Saved entity</label>
+        <div style="display:flex;gap:6px">
+          <select id="entitySel" style="flex:1"></select>
+          <button class="btn ghost sm" onclick="fillEntity()" title="Fill from saved entity">Use</button>
+        </div>
+      </div>
+      <div><label>General Contractor</label><input type="text" id="genContractor" value="MAB Properties Inc"></div>
+      <div style="display:flex;align-items:flex-end"><button class="btn ghost sm" onclick="useAddressLLC()" title="Set Contractor = '[site] LLC'">Use address LLC</button></div>
+      <div class="full"><label>Subcontractor (legal/business name)</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="subcontractor" placeholder="e.g. Casner Construction, Inc." style="flex:1">
+          <select id="subSel" style="flex:0 0 220px" onchange="fillSub()"><option value="">— pick saved sub —</option></select>
+          <button class="btn ghost sm" onclick="saveSubFromForm()" title="Save the current scope, payment terms, milestones and contact as this sub">Save as sub</button>
+        </div>
+        <div class="muted" style="margin-top:5px">Picking a saved sub fills its scope, payment terms, milestones, and signature block. Edit anything, then "Save as sub" to update that sub's template. Manage the full list in the Directory below.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIRECTORY -->
+  <div class="card">
+    <h2>&#128218; Directory <span class="muted" style="font-weight:400;text-transform:none">&mdash; saved subs &amp; project entities (auto-saved on this computer)</span></h2>
+    <details>
+      <summary>Subcontractors (<span id="subCount">0</span>)</summary>
+      <div id="subDir" style="margin-top:12px"></div>
+      <button class="btn ghost sm" onclick="addSubRow()">+ Add subcontractor</button>
+    </details>
+    <details style="margin-top:10px">
+      <summary>Project entities / Contractor LLCs (<span id="entCount">0</span>)</summary>
+      <div id="entDir" style="margin-top:12px"></div>
+      <button class="btn ghost sm" onclick="addEntRow()">+ Add entity</button>
+    </details>
+    <div class="bar" style="margin-top:14px">
+      <button class="btn sm" onclick="saveDir()">&#128190; Save directory</button>
+      <button class="btn ghost sm" onclick="exportDir()">&#8681; Export backup</button>
+      <button class="btn ghost sm" onclick="document.getElementById('dirFile').click()">&#8682; Import backup</button>
+      <input type="file" id="dirFile" accept="application/json" style="display:none" onchange="importDir(event)">
+    </div>
+  </div>
+
+  <!-- PROJECTS SWITCHER -->
+  <div class="card">
+    <h2>&#127970; Projects <span class="muted" style="font-weight:400;text-transform:none">&mdash; one tool for every property (<span id="projCount">0</span> saved)</span></h2>
+    <p class="hint">Save the current job, then switch between properties anytime. Each saved project remembers all fields, scope, and milestones. Subs &amp; entities are shared across all projects.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="projSel" style="flex:1;min-width:200px"></select>
+      <button class="btn sm" onclick="loadProjectLS()">Load</button>
+      <button class="btn ghost sm" onclick="saveProjectLS()">Save current as&hellip;</button>
+      <button class="btn x sm" onclick="delProjectLS()">Delete</button>
+      <span style="width:1px;height:24px;background:var(--line)"></span>
+      <button class="btn ghost sm" onclick="saveProject()" title="Download a portable .json backup">Export file</button>
+      <button class="btn ghost sm" onclick="document.getElementById('loadFile').click()" title="Load a .json backup">Import file</button>
+    </div>
+  </div>
+
+  <!-- PROJECT -->
+  <div class="card">
+    <h2>2 &middot; Project Information</h2>
+    <p class="hint">Appears in the contract header.</p>
+    <div class="grid">
+      <div><label>Project</label><input type="text" id="project" placeholder="e.g. 2420 Ives Foundation"></div>
+      <div><label>Owner</label><input type="text" id="owner"></div>
+      <div class="full"><label>Site address</label><input type="text" id="site"></div>
+      <div><label>APN</label><input type="text" id="apn"></div>
+      <div><label>General Contract dated</label><input type="text" id="gcDated" placeholder="e.g. May 1, 2026"></div>
+      <div class="full"><label>Plans and Specifications</label><input type="text" id="plans" placeholder="e.g. Structural drawings S1-S4 dated 4/15/26"></div>
+    </div>
+  </div>
+
+  <!-- SCOPE -->
+  <div class="card">
+    <h2>3 &middot; Description of the Work (Scope)</h2>
+    <p class="hint">Pick the trade to load a starting checklist for this subcontractor, then check/edit/add the lines that apply. Each sub gets their own scope.</p>
+    <div class="grid" style="margin-bottom:14px">
+      <div><label>Trade preset</label>
+        <select id="tradeSel"></select></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <button class="btn ghost sm" onclick="loadTrade('replace')">Load (replace)</button>
+        <button class="btn ghost sm" onclick="loadTrade('append')">Add to list</button>
+      </div>
+    </div>
+    <div id="scopeList"></div>
+    <button class="btn ghost sm addbtn" onclick="addScope('')">+ Add custom scope item</button>
+    <div style="margin-top:10px"><button class="btn ghost sm" onclick="checkAllScope(true)">Check all</button>
+      <button class="btn ghost sm" onclick="checkAllScope(false)">Uncheck all</button></div>
+  </div>
+
+  <!-- TIME + PRICE -->
+  <div class="card">
+    <h2>4 &middot; Time for Performance &amp; Price</h2>
+    <div class="grid">
+      <div class="full"><label>Time for performance (Section 3)</label>
+        <textarea id="timePerf" placeholder="e.g. Work to commence within 5 days of written notice to proceed and reach substantial completion within 30 calendar days, subject to weather and inspections."></textarea></div>
+      <div><label>Subcontract price (number)</label><input type="number" id="price" step="0.01" placeholder="45000" oninput="recalc()"></div>
+      <div><label>Price in words (auto)</label><input type="text" id="priceWords" placeholder="auto-filled"></div>
+    </div>
+  </div>
+
+  <!-- MILESTONES -->
+  <div class="card">
+    <h2>5 &middot; Payment Milestones</h2>
+    <p class="hint">Add/remove rows. Enter a % <em>or</em> a $ amount &mdash; the other fills from the contract price. Total should equal the price.</p>
+    <div class="ms-head"><div>Milestone description</div><div>%</div><div>Amount&nbsp;$</div><div></div></div>
+    <div id="msList"></div>
+    <button class="btn ghost sm addbtn" onclick="addMilestone('','','')">+ Add milestone</button>
+    <div class="totbar">
+      <span>Milestone total: <b id="msTotal">$0.00</b> &nbsp;/&nbsp; Price: <b id="msPrice">$0.00</b></span>
+      <span id="msPill" class="pill warn">&mdash;</span>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div class="full"><label>Payment terms note (Section 5a intro &mdash; optional)</label>
+        <textarea id="payNote" placeholder="e.g. Payment due within 10 days of each completed and inspected milestone, less 10% retention released upon final acceptance and lien releases.">Payment due within 10 days of Contractor's approval of each completed milestone, upon submission of conditional and unconditional lien releases. Ten percent (10%) retention shall be withheld from each progress payment and released upon final completion and acceptance.</textarea></div>
+    </div>
+  </div>
+
+  <!-- OTHER TERMS -->
+  <div class="card">
+    <h2>6 &middot; Other Terms</h2>
+    <div class="grid">
+      <div><label>Default cure notice (Sec. 17) &mdash; days</label><input type="number" id="defaultDays" value="3"></div>
+      <div class="full"><label>Other / special provisions (Section 19)</label>
+        <textarea id="otherProv" placeholder="Any project-specific terms, allowances, exclusions, schedule constraints, etc."></textarea></div>
+    </div>
+  </div>
+
+  <!-- SIGNATURE -->
+  <div class="card">
+    <h2>7 &middot; Signature Block</h2>
+    <div class="grid">
+      <div><label>Contractor print name</label><input type="text" id="cName" value="Manoj Narang"></div>
+      <div><label>Contractor state license #</label><input type="text" id="cLic"></div>
+      <div class="full"><label>Contractor address</label><input type="text" id="cAddr" value="720 Rita Street, Redondo Beach, CA 90277"></div>
+      <div><label>Contractor phone</label><input type="text" id="cPhone" value="310-800-0510"></div>
+      <div><label>Contractor email</label><input type="email" id="cEmail"></div>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+    <div class="grid">
+      <div><label>Subcontractor print name</label><input type="text" id="sName"></div>
+      <div><label>Subcontractor state license #</label><input type="text" id="sLic"></div>
+      <div class="full"><label>Subcontractor address</label><input type="text" id="sAddr"></div>
+      <div><label>Subcontractor phone</label><input type="text" id="sPhone"></div>
+      <div><label>Subcontractor email (for insurance request)</label><input type="email" id="sEmail"></div>
+      <div><label>Tax ID / SSN</label><input type="text" id="sTax"></div>
+    </div>
+  </div>
+
+  <!-- INSURANCE EMAIL -->
+  <div class="card">
+    <h2>8 &middot; Insurance &amp; Paperwork Request Email</h2>
+    <p class="hint">Auto-drafted from the fields above. Edit the checklist, then copy it or open it in your mail app.</p>
+    <details style="margin-bottom:12px"><summary>Which documents to request</summary>
+      <div id="docReqs" style="margin-top:10px"></div>
+    </details>
+    <label>Draft email</label>
+    <textarea id="emailBody" style="min-height:240px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px"></textarea>
+    <div class="bar" style="margin-top:10px">
+      <button class="btn sm" onclick="buildEmail()">&#8635; Rebuild from fields</button>
+      <button class="btn ghost sm" onclick="copyEmail()">&#128203; Copy email</button>
+      <button class="btn ghost sm" onclick="openMail()">&#9993; Open in mail app</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- DATA ---------- */
+// Each subcontractor/trade gets its own starting checklist. Add trades or lines freely.
+const COMMON_TAIL = "Clean up and remove all debris and excess materials resulting from this Work, as directed by Contractor.";
+const SCOPE_LIBRARY = {
+  "Foundation / Concrete": [
+    "Provide all labor, materials, equipment, tools, and supervision necessary to complete the foundation work.",
+    "Perform site excavation, trenching, and rough grading for foundations to the depths required by the plans.",
+    "Lay out and form all footings, grade beams, and foundation/stem walls per the structural drawings.",
+    "Furnish and place reinforcing steel (rebar), dowels, and tie wire per the structural drawings.",
+    "Furnish and install foundation anchor bolts, hold-downs, and embedded hardware as specified.",
+    "Furnish and place concrete for footings, stem walls, and slab-on-grade at the specified strength (PSI).",
+    "Furnish and install under-slab gravel base and vapor barrier.",
+    "Provide and install perimeter foundation drainage where shown.",
+    "Apply dampproofing/waterproofing to foundation walls as specified.",
+    "Finish the concrete slab to the specified flatness and surface tolerances.",
+    "Strip forms and backfill/compact against foundation walls after concrete cures.",
+    "Coordinate required concrete testing (slump and test cylinders) with the inspector.",
+    COMMON_TAIL
+  ],
+  "Framing / Carpentry": [
+    "Provide all labor, materials, equipment, and supervision for the rough framing work.",
+    "Frame all floor systems, joists, and subfloor per the structural drawings.",
+    "Frame all exterior and interior walls, headers, and shear walls per plan.",
+    "Frame roof structure, trusses/rafters, and sheathing per plan.",
+    "Install all structural connectors, hold-downs, straps, and hardware per the structural drawings.",
+    "Install exterior wall and roof sheathing and apply weather-resistive barrier as specified.",
+    "Set windows and exterior door units (furnished by others unless noted).",
+    "Install blocking and backing for cabinets, fixtures, and accessories.",
+    COMMON_TAIL
+  ],
+  "Electrical": [
+    "Provide all labor, materials, permits, equipment, and supervision for the electrical work.",
+    "Install temporary power as required for construction.",
+    "Furnish and install service panel, sub-panels, grounding, and bonding per code.",
+    "Rough-in all branch circuit wiring, boxes, and conduit per plan and code.",
+    "Furnish and install devices, switches, receptacles, and cover plates.",
+    "Furnish and install light fixtures (owner-supplied fixtures installed unless noted).",
+    "Install smoke/CO detectors, exhaust fans, and low-voltage rough-in as shown.",
+    "Provide all required inspections and obtain electrical sign-off.",
+    COMMON_TAIL
+  ],
+  "Plumbing": [
+    "Provide all labor, materials, permits, equipment, and supervision for the plumbing work.",
+    "Install underground/under-slab water, waste, and vent piping per plan and code.",
+    "Rough-in all supply, drain, waste, and vent piping for fixtures.",
+    "Furnish and install water heater and connections per code.",
+    "Set and connect all plumbing fixtures, faucets, and trim (owner-supplied fixtures set unless noted).",
+    "Pressure test all systems and provide required inspections and sign-off.",
+    COMMON_TAIL
+  ],
+  "HVAC / Mechanical": [
+    "Provide all labor, materials, permits, equipment, and supervision for the HVAC work.",
+    "Furnish and install heating/cooling equipment, condensers, and air handlers per plan.",
+    "Install all supply and return ductwork, registers, and grilles.",
+    "Install refrigerant lines, condensate drains, and thermostats/controls.",
+    "Install exhaust and ventilation per code.",
+    "Charge, balance, and test the system; provide required inspections and sign-off.",
+    COMMON_TAIL
+  ],
+  "Roofing": [
+    "Provide all labor, materials, equipment, and supervision for the roofing work.",
+    "Install underlayment, ice-and-water shield, and flashing per manufacturer specs.",
+    "Furnish and install roofing material (shingle/membrane/tile) per plan and warranty.",
+    "Install valley, drip edge, ridge, and penetration flashing.",
+    "Install roof ventilation as specified.",
+    "Provide manufacturer warranty and workmanship warranty per the agreement.",
+    COMMON_TAIL
+  ],
+  "Drywall / Insulation": [
+    "Provide all labor, materials, equipment, and supervision for insulation and drywall work.",
+    "Furnish and install wall and ceiling insulation to the specified R-values.",
+    "Hang drywall on all walls and ceilings per plan, fire-rated where required.",
+    "Tape, mud, and finish to the specified finish level.",
+    "Apply texture as specified and prepare surfaces for paint.",
+    COMMON_TAIL
+  ],
+  "Painting": [
+    "Provide all labor, materials, equipment, and supervision for the painting work.",
+    "Prep, patch, caulk, and sand all surfaces to be painted.",
+    "Prime and apply finish coats to interior walls, ceilings, and trim per spec.",
+    "Paint/stain exterior surfaces and trim as specified.",
+    "Protect adjacent surfaces, floors, and fixtures; touch up as directed.",
+    COMMON_TAIL
+  ],
+  "Flooring / Tile": [
+    "Provide all labor, materials, equipment, and supervision for the flooring work.",
+    "Prepare and level substrate to manufacturer tolerances.",
+    "Furnish and install flooring material (tile/LVP/hardwood/carpet) per plan.",
+    "Install underlayment, transitions, thresholds, and trim.",
+    "Grout, seal, and clean tile installations as specified.",
+    COMMON_TAIL
+  ],
+  "Landscaping / Sitework": [
+    "Provide all labor, materials, equipment, and supervision for the landscaping/sitework.",
+    "Perform finish grading and soil preparation.",
+    "Install irrigation system, controller, and backflow per plan and code.",
+    "Furnish and install plant material, sod/seed, and ground cover per plan.",
+    "Install hardscape, walkways, and edging as specified.",
+    COMMON_TAIL
+  ],
+  "Stucco / Exterior Plaster": [
+    "Provide all labor, materials, equipment, and supervision for the stucco/exterior plaster work.",
+    "Install lath, weather-resistive barrier, and accessories (corner aid, casing bead, weep screed) per code.",
+    "Apply scratch, brown, and finish coats to the specified texture and color.",
+    "Install control and expansion joints as specified.",
+    "Patch and match existing stucco at tie-ins as required.",
+    COMMON_TAIL
+  ],
+  "Waterproofing": [
+    "Provide all labor, materials, equipment, and supervision for the waterproofing work.",
+    "Prepare and prime all substrates per manufacturer specifications.",
+    "Furnish and install waterproofing membrane at decks, balconies, planters, and below-grade walls as specified.",
+    "Install flashing, drains, and detail work at penetrations and terminations.",
+    "Perform flood/water testing where required and provide manufacturer warranty.",
+    COMMON_TAIL
+  ],
+  "Demolition": [
+    "Provide all labor, materials, equipment, and supervision for the demolition work.",
+    "Disconnect and cap utilities as required prior to demolition.",
+    "Demolish and remove structures, finishes, and debris as shown on the plans.",
+    "Protect adjacent structures, landscaping, and improvements to remain.",
+    "Haul off and legally dispose of all demolition debris.",
+    COMMON_TAIL
+  ],
+  "Solar": [
+    "Provide all labor, materials, permits, equipment, and supervision for the solar PV system.",
+    "Furnish and install solar modules, racking, inverters, and conduit per the approved design.",
+    "Make all electrical connections, labeling, and interconnection per code and utility requirements.",
+    "Coordinate inspections, PTO (permission to operate), and provide system/production warranty.",
+    COMMON_TAIL
+  ],
+  "Fire Sprinkler": [
+    "Provide all labor, materials, permits, equipment, and supervision for the fire sprinkler system.",
+    "Design, furnish, and install piping, heads, and risers per NFPA and the approved plans.",
+    "Coordinate connections, backflow, and monitoring as required.",
+    "Perform hydrostatic testing and obtain fire department/AHJ sign-off.",
+    COMMON_TAIL
+  ],
+  "Finish Carpentry": [
+    "Provide all labor, materials, equipment, and supervision for the finish carpentry.",
+    "Furnish and install interior doors, casing, base, and trim per plan.",
+    "Install closet systems, shelving, and hardware.",
+    "Install stair trim, handrails, and millwork as specified.",
+    COMMON_TAIL
+  ],
+  "Railings / Metal Fabrication": [
+    "Provide all labor, materials, equipment, and supervision for the railing/metal work.",
+    "Fabricate and install guardrails, handrails, and stair railings per plan and code.",
+    "Field measure, fabricate, prime, and finish all metalwork.",
+    "Anchor and secure all railings to meet code load requirements.",
+    COMMON_TAIL
+  ],
+  "Rain Gutters": [
+    "Provide all labor, materials, equipment, and supervision for gutters and downspouts.",
+    "Furnish and install seamless gutters, downspouts, and leaders per plan.",
+    "Connect downspouts to drainage as directed.",
+    COMMON_TAIL
+  ],
+  "Low Voltage / Data": [
+    "Provide all labor, materials, equipment, and supervision for low-voltage systems.",
+    "Rough-in and install structured wiring for data, CATV, audio, and security per plan.",
+    "Install and terminate devices, panels, and faceplates.",
+    "Test and label all circuits and provide as-built documentation.",
+    COMMON_TAIL
+  ],
+  "Windows & Doors": [
+    "Provide all labor, materials, equipment, and supervision for windows and exterior doors.",
+    "Furnish and install windows and exterior doors per plan, properly flashed and weatherproofed.",
+    "Install hardware, thresholds, and weatherstripping.",
+    "Seal and caulk all units; verify proper operation.",
+    COMMON_TAIL
+  ],
+  "Grading & Shoring": [
+    "Provide all labor, materials, equipment, and supervision for grading and shoring.",
+    "Perform cut/fill, rough and finish grading to the lines and grades shown.",
+    "Install temporary shoring and erosion control as required.",
+    "Compact to the specified density and coordinate required testing.",
+    COMMON_TAIL
+  ],
+  "General / Blank": [
+    "Provide all labor, materials, equipment, tools, and supervision necessary to complete the Work described below.",
+    COMMON_TAIL
+  ]
+};
+const DEFAULT_DOCS = [
+  ["coi", "Certificate of Insurance (General Liability $2M/occurrence, Auto $1M)", true],
+  ["ai",  "Additional Insured endorsement naming Contractor (primary & non-contributory)", true],
+  ["wc",  "Workers' Compensation certificate", true],
+  ["w9",  "Completed W-9", true],
+  ["lic", "Copy of current state contractor's license", true],
+  ["lien","Signed lien release schedule acknowledgement", false],
+  ["safe","Safety / OSHA compliance acknowledgement", false]
+];
+
+/* ---------- HELPERS ---------- */
+const $ = id => document.getElementById(id);
+const money = n => "$" + (isFinite(n)?n:0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1900);}
+
+/* ---------- SCOPE ---------- */
+function addScope(text, checked=true){
+  const row=document.createElement("div");row.className="scope-row";
+  const cb=document.createElement("input");cb.type="checkbox";cb.checked=checked;
+  const ta=document.createElement("textarea");ta.value=text;ta.rows=1;
+  ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";});
+  const rm=document.createElement("button");rm.className="btn x";rm.innerHTML="&times;";rm.title="Remove";
+  rm.onclick=()=>row.remove();
+  row.append(cb,ta,rm);$("scopeList").appendChild(row);
+  setTimeout(()=>{ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";},0);
+}
+function checkAllScope(v){document.querySelectorAll("#scopeList input[type=checkbox]").forEach(c=>c.checked=v);}
+function loadTrade(mode){
+  const trade=$("tradeSel").value;const items=SCOPE_LIBRARY[trade]||[];
+  if(mode==="replace"){
+    if($("scopeList").children.length && !confirm("Replace the current scope list with the "+trade+" checklist?"))return;
+    $("scopeList").innerHTML="";
+  }
+  items.forEach(s=>addScope(s,true));
+  toast(trade+" scope "+(mode==="replace"?"loaded":"added"));
+}
+function getScope(){
+  return [...document.querySelectorAll("#scopeList .scope-row")]
+    .filter(r=>r.querySelector("input").checked)
+    .map(r=>r.querySelector("textarea").value.trim())
+    .filter(Boolean);
+}
+
+/* ---------- MILESTONES ---------- */
+function addMilestone(desc,pct,amt){
+  const row=document.createElement("div");row.className="ms-row";
+  const d=document.createElement("input");d.type="text";d.placeholder="e.g. Mobilization / deposit";d.value=desc||"";
+  const p=document.createElement("input");p.type="number";p.step="0.01";p.placeholder="%";p.value=pct||"";
+  const a=document.createElement("input");a.type="number";a.step="0.01";a.placeholder="$";a.value=amt||"";
+  p.addEventListener("input",()=>{const price=+$("price").value;if(price&&p.value!=="")a.value=(price*(+p.value)/100).toFixed(2);recalc();});
+  a.addEventListener("input",()=>{const price=+$("price").value;if(price&&a.value!=="")p.value=((+a.value)/price*100).toFixed(2);recalc();});
+  const xw=document.createElement("div");xw.className="xwrap";
+  const rm=document.createElement("button");rm.className="btn x";rm.innerHTML="&times;";rm.onclick=()=>{row.remove();recalc();};
+  xw.appendChild(rm);
+  row.append(d,p,a,xw);$("msList").appendChild(row);recalc();
+}
+function getMilestones(){
+  return [...document.querySelectorAll("#msList .ms-row")].map(r=>{
+    const i=r.querySelectorAll("input");
+    return {desc:i[0].value.trim(),pct:i[1].value,amt:+i[2].value||0};
+  }).filter(m=>m.desc||m.amt);
+}
+function recalc(){
+  const price=+$("price").value||0;
+  let tot=0;document.querySelectorAll("#msList .ms-row").forEach(r=>tot+=+r.querySelectorAll("input")[2].value||0);
+  $("msTotal").textContent=money(tot);$("msPrice").textContent=money(price);
+  $("priceWords").value=price?numToWords(price):"";
+  const pill=$("msPill");
+  if(!price){pill.className="pill warn";pill.textContent="Set a price";}
+  else if(Math.abs(tot-price)<0.01){pill.className="pill ok";pill.textContent="✓ Balanced";}
+  else{pill.className="pill warn";pill.textContent=(tot>price?"Over by ":"Short by ")+money(Math.abs(tot-price));}
+}
+
+/* ---------- NUMBER TO WORDS ---------- */
+function numToWords(n){
+  n=Math.round(n*100)/100;const dollars=Math.floor(n);const cents=Math.round((n-dollars)*100);
+  const a=["","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"];
+  const b=["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+  function three(x){let s="";if(x>99){s+=a[Math.floor(x/100)]+" hundred ";x%=100;}if(x>19){s+=b[Math.floor(x/10)]+" ";x%=10;}if(x>0)s+=a[x]+" ";return s;}
+  if(dollars===0)var words="zero ";else{
+    let x=dollars,parts="",sc=["","thousand","million","billion"],i=0,chunks=[];
+    while(x>0){chunks.push(x%1000);x=Math.floor(x/1000);}
+    for(let j=chunks.length-1;j>=0;j--){if(chunks[j])parts+=three(chunks[j])+(sc[j]?sc[j]+" ":"");}
+    var words=parts;
+  }
+  words=words.trim();words=words.charAt(0).toUpperCase()+words.slice(1);
+  return words+" and "+String(cents).padStart(2,"0")+"/100 Dollars ($"+dollars.toLocaleString("en-US")+(cents?"."+String(cents).padStart(2,"0"):".00")+")";
+}
+
+/* ---------- DOC REQ CHECKLIST + EMAIL ---------- */
+function renderDocReqs(){
+  const c=$("docReqs");c.innerHTML="";
+  DEFAULT_DOCS.forEach(([k,label,def])=>{
+    const l=document.createElement("label");l.style.cssText="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:500;margin-bottom:6px;color:var(--ink)";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=def;cb.dataset.req=k;cb.style.cssText="width:16px;height:16px;accent-color:var(--brand)";
+    cb.onchange=buildEmail;
+    l.append(cb,document.createTextNode(label));c.appendChild(l);
+  });
+}
+function buildEmail(){
+  const sub=$("subcontractor").value||"[Subcontractor]";
+  const proj=$("project").value||"[Project]";
+  const site=$("site").value;
+  const cName=$("cName").value||$("contractor").value;
+  const cCo=$("contractor").value;
+  const cEmail=$("cEmail").value;
+  const cPhone=$("cPhone").value;
+  const reqs=[...document.querySelectorAll("#docReqs input:checked")].map(c=>"   • "+c.parentNode.textContent.trim());
+  const body=
+`Subject: ${proj} – Subcontract & Insurance Requirements for ${sub}
+
+Hello,
+
+Thank you for agreeing to perform the work on ${proj}${site?` (${site})`:""}. Attached is the subcontract agreement for your review and signature.
+
+Before we can issue a notice to proceed, please provide the following:
+
+${reqs.join("\n")}
+
+Insurance must meet the contract limits: General Liability of $2,000,000 per occurrence and $1,000,000 personal injury; Automobile Liability of $1,000,000 combined single limit; and Workers' Compensation as required by law. ${cCo} must be named as additional insured on a primary and non-contributory basis, with 30 days' written notice of cancellation.
+
+Please return the signed agreement and the items above at your earliest convenience so we can keep the project on schedule. Let me know if you have any questions.
+
+Best regards,
+${cName}
+${cCo}${cPhone?"\n"+cPhone:""}${cEmail?"\n"+cEmail:""}`;
+  $("emailBody").value=body;
+}
+function copyEmail(){navigator.clipboard.writeText($("emailBody").value).then(()=>toast("Email copied"));}
+function openMail(){
+  const to=$("sEmail").value;
+  const lines=$("emailBody").value.split("\n");
+  const subj=lines[0].replace(/^Subject:\s*/,"");
+  const body=lines.slice(2).join("\n");
+  window.location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+}
+
+/* ---------- SAVE / LOAD PROJECT ---------- */
+const FIELDS=["aDate","contractor","genContractor","subcontractor","project","owner","site","apn","gcDated","plans","timePerf","price","payNote","defaultDays","wcState","otherProv","cName","cLic","cAddr","cPhone","cEmail","sName","sLic","sAddr","sPhone","sEmail","sTax"];
+function getState(){
+  const data={fields:{},scope:[],milestones:[]};
+  FIELDS.forEach(f=>data.fields[f]=$(f).value);
+  document.querySelectorAll("#scopeList .scope-row").forEach(r=>data.scope.push({t:r.querySelector("textarea").value,c:r.querySelector("input").checked}));
+  data.milestones=getMilestones();return data;
+}
+function applyState(d){
+  FIELDS.forEach(k=>{if(d.fields&&k in d.fields)$(k).value=d.fields[k];});
+  $("scopeList").innerHTML="";(d.scope||[]).forEach(s=>addScope(s.t,s.c));
+  $("msList").innerHTML="";(d.milestones||[]).forEach(m=>addMilestone(m.desc,m.pct,m.amt));
+  recalc();buildEmail();
+}
+function saveProject(){
+  const data=getState();
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const name=(data.fields.project||"subcontract").replace(/[^a-z0-9]+/gi,"_");
+  saveAs(blob,name+"_project.json");toast("Project file saved");
+}
+function loadProject(e){
+  const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{applyState(JSON.parse(r.result));toast("Project loaded");}catch(err){alert("Could not read that file.");}};
+  r.readAsText(f);e.target.value="";
+}
+/* projects stored on this computer */
+let PROJECTS={};
+function loadProjects(){if(LS_OK){try{PROJECTS=JSON.parse(localStorage.getItem("SCB_PROJECTS"))||{};}catch(e){PROJECTS={};}}}
+function persistProjects(){if(LS_OK){try{localStorage.setItem("SCB_PROJECTS",JSON.stringify(PROJECTS));}catch(e){}}}
+function renderProjPicker(){const sel=$("projSel");if(!sel)return;sel.innerHTML='<option value="">— saved projects —</option>';Object.keys(PROJECTS).sort().forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;sel.appendChild(o);});$("projCount").textContent=Object.keys(PROJECTS).length;}
+function saveProjectLS(){const def=$("project").value||$("contractor").value||"Untitled";const name=prompt("Save this project as (e.g. property address):",def);if(!name)return;PROJECTS[name]=getState();persistProjects();renderProjPicker();$("projSel").value=name;toast("Saved “"+name+"”");}
+function loadProjectLS(){const n=$("projSel").value;if(!n||!PROJECTS[n])return;applyState(PROJECTS[n]);toast("Loaded “"+n+"”");}
+function delProjectLS(){const n=$("projSel").value;if(!n)return;if(!confirm("Delete saved project “"+n+"”?"))return;delete PROJECTS[n];persistProjects();renderProjPicker();toast("Deleted “"+n+"”");}
+
+/* ---------- DIRECTORY (subs + project entities) ---------- */
+const LS_OK=(()=>{try{localStorage.setItem("__t","1");localStorage.removeItem("__t");return true;}catch(e){return false;}})();
+let SUBS=[], ENTITIES=[];
+function S(o){return Object.assign({company:"",trade:"",contact:"",addr:"",phone:"",email:"",lic:"",tax:"",notes:"",scope:"",pay:"",ms:[]},o);}
+const SEED_SUBS=[
+  S({company:"Casner Construction Inc",phone:"310-505-6600",trade:"Foundation / Concrete",notes:"Foundation — used on 1811 Clark, Marshallfield, 2306 Clark, 627 Broadway, 2412 Carnegie",
+     scope:"Foundation work including footings, stem walls, and slab, plus demolition, recompaction/grading, and property line wall, all per the attached proposal.",
+     pay:"Foundation: 10% deposit; 40% 1st pour (exterior stem walls); 40% 2nd pour (remaining stem walls & slab); 10% after 1st-floor framing inspection. Property line wall billed separately (10% deposit / 40% 1st pour / 40% at brick pilasters / 10% at grouting & completion).",
+     ms:[["Deposit",10,""],["1st pour – exterior stem walls",40,""],["2nd pour – remaining stem walls & slab",40,""],["After 1st-floor framing inspection",10,""]]}),
+  S({company:"Cancino Concrete Inc",contact:"Joseph Cancino",phone:"310-798-8944",email:"josephcancino@cancinoconcrete.com",lic:"1006280",trade:"Foundation / Concrete",notes:"Concrete flatwork / driveway — 2001 Farrell",
+     scope:"Concrete flatwork, driveway, and related concrete work per the attached proposal.",
+     pay:"10% deposit; 45% at pour; 45% at completion.",
+     ms:[["Deposit",10,""],["Pour",45,""],["Completion",45,""]]}),
+  S({company:"SQ Construction Inc",trade:"Foundation / Concrete",notes:"Foundation — 1644 Goodman, 2406 Mathews. WC: State Comp Fund 9274510",
+     scope:"Foundation including footings, stem walls, and slab, plus property line wall, per the attached proposal.",
+     pay:"10% deposit; 40% 1st pour (exterior stem walls); 40% 2nd pour (interior stem walls); 10% at framer verification.",
+     ms:[["Deposit",10,""],["1st pour",40,""],["2nd pour",40,""],["Framer verification",10,""]]}),
+  S({company:"Neri General Contractors",lic:"797967",trade:"Framing / Carpentry",notes:"Framing — 2420 Ives",
+     scope:"Framing for multi-unit condo project including soffits, installation and waterproofing of windows, and hardware.",
+     pay:"10% deposit; 40% walls framed; 40% roof/sheathing; 10% after framing inspection.",
+     ms:[["Deposit",10,""],["Walls framed",40,""],["Roof & sheathing",40,""],["After framing inspection",10,""]]}),
+  S({company:"Maverick Roofing Inc",phone:"424-221-0463",trade:"Roofing",notes:"Roofing — Marshallfield, 2001 Farrell, 2412 Carnegie, 1644 Goodman, 2406 Mathews",
+     scope:"Roofing installation for all units per the attached Maverick Roofing proposal.",
+     pay:"10% deposit; 20% on material delivery; 20% on paper & dormers; 50% on completion.",
+     ms:[["Deposit",10,""],["Materials delivered",20,""],["Paper & dormers",20,""],["Completion",50,""]]}),
+  S({company:"Westwood Drywall",phone:"310-261-0063",email:"westwood261@gmail.com",trade:"Drywall / Insulation",notes:"Drywall — Marshallfield",
+     scope:"Complete 5/8\" drywall with Class V smooth finish; type “W” or “R” board at all bathrooms, laundries, and wet areas; all corners square; touch-up included.",
+     pay:"40% on drywall delivery; 40% on nailing; 20% on completion.",
+     ms:[["Drywall delivered",40,""],["Nailing complete",40,""],["Completion",20,""]]}),
+  S({company:"10 Points Construction Inc",phone:"310-261-0063",email:"westwood261@gmail.com",lic:"1043256",trade:"Drywall / Insulation",notes:"Drywall — 2412 Carnegie, 2406 Mathews",
+     scope:"Complete 5/8\" drywall with Class V smooth finish; type “W” or “R” board at all bathrooms, laundries, and wet areas; all corners square; touch-up included.",
+     pay:"40% on drywall delivery; 40% on nailing; 20% on completion.",
+     ms:[["Drywall delivered",40,""],["Nailing complete",40,""],["Completion",20,""]]}),
+  S({company:"A and F McGuire Electric Co",trade:"Electrical",notes:"Electrical & low voltage — 2412 Carnegie, 2306 Clark, 627 Broadway",
+     scope:"Complete electrical installation (underground, rough, and finish) per proposal; includes 220V lines to car charger, laundry, cooktop, and AC; owner-supplied fixtures installed by subcontractor.",
+     pay:"10% deposit; 20% pre-purchase material; 45% at rough inspection; 25% at final inspection.",
+     ms:[["Deposit",10,""],["Pre-purchase material",20,""],["Rough inspection",45,""],["Final inspection",25,""]]}),
+  S({company:"Ponderosa Pines Electric",trade:"Electrical",notes:"Electrical — 1644 Goodman, 2406 Mathews. WC: State Comp Fund 9274510",
+     scope:"Complete electrical (underground, rough, finish); materials and labor by subcontractor except finish outlets/switches; owner-supplied fixtures installed.",
+     pay:"~10% deposit; ~60% at rough inspection; ~30% at finish.",
+     ms:[["Deposit",10,""],["Rough inspection",60,""],["Finish",30,""]]}),
+  S({company:"MB and Sons Plumbing Inc",phone:"424-203-1090",email:"mb.sonsplumbing@gmail.com",trade:"Plumbing",notes:"Plumbing — 2412 Carnegie, 1644 Goodman, 627 Broadway",
+     scope:"Complete plumbing per proposal (underground, rough, and finish).",
+     pay:"By stage: after underground inspection; after waste completed at rough; after rough completed; after final plumbing.",
+     ms:[["After underground inspection",24,""],["After waste at rough",16,""],["After rough",46,""],["After final",14,""]]}),
+  S({company:"Ray's Air Conditioning & Heating Co",trade:"HVAC / Mechanical",notes:"HVAC — 2412 Carnegie, 2306 Clark, 2001 Farrell",
+     scope:"Installation of HVAC systems, AC-ready, including all ducting for exhaust fans, cooktop, and dryer vents.",
+     pay:"10% deposit; 50% at rough-in; 40% at completion.",
+     ms:[["Deposit",10,""],["Rough-in",50,""],["Completion",40,""]]}),
+  S({company:"Urbano Plastering Inc",trade:"Stucco / Exterior Plaster",notes:"Stucco — 2412 Carnegie, 2001 Farrell, 1644 Goodman, 2406 Mathews",
+     scope:"Set scaffold; 2-layer 60-minute grade lath moisture barrier; weep screed, 7/8\" milcore, and corner aid; lath/wire hand-nailed with furring nails; 20/30 sand finish; fiberglass mesh before color coat; foam trim to match at windows; property-line block walls stucco to match; owner selects color.",
+     pay:"By stage: lath inspection; scratch & brown; color coat; property line walls; touch-up; foam detail.",
+     ms:[["Lath inspection",19,""],["Scratch & brown",29,""],["Color coat",21,""],["Property line walls",19,""],["Touch-up",4,""],["Foam detail",8,""]]}),
+  S({company:"Allied Insulation Inc",phone:"949-795-3350",email:"jeremys@relyont.com",trade:"Drywall / Insulation",notes:"Insulation — 2412 Carnegie, 1644 Goodman",
+     scope:"Install insulation to match plan requirements per proposal.",
+     pay:"10% deposit; 90% on passing city inspection.",
+     ms:[["Deposit",10,""],["Passing city inspection",90,""]]}),
+  S({company:"JDM Builders Inc",trade:"Stucco / Exterior Plaster",notes:"Waterproofing & siding / exterior facade — 2412 Carnegie, 2420 Ives, 2406 Mathews",
+     scope:"Complete waterproofing and siding, including eaves, per the attached JDM proposal.",
+     pay:"Per proposal — 10% deposit; 40% mid; 40% substantial completion; 10% final.",
+     ms:[["Deposit",10,""],["Mid-progress",40,""],["Substantial completion",40,""],["Final",10,""]]}),
+  S({company:"Victor Sheet Metal",trade:"Rain Gutters",notes:"Rain gutters — 2001 Farrell, Marshallfield, 2306 Clark",
+     scope:"Installation of rain gutters with round downspouts, leader heads, and face gutters.",
+     pay:"10% deposit after signing; 40% at face gutters; 40% at downspouts; 10% at final.",
+     ms:[["Deposit",10,""],["Face gutters",40,""],["Downspouts",40,""],["Final",10,""]]}),
+  S({company:"MacGreine Energy Corp",phone:"310-428-1749",email:"dtrew@macgreine.com",lic:"1000366",trade:"Solar",notes:"Solar — 2412 Carnegie, 627 Broadway",
+     scope:"Solar PV system installation per proposal, including permits.",
+     pay:"10% deposit; 30% rough install & inspection; 40% final inspection; 5% retention at SCE connection; 5% buyer walkthrough.",
+     ms:[["Deposit",10,""],["Rough install & inspection",30,""],["Final inspection",40,""],["Retention – SCE connection",5,""],["Buyer walkthrough",5,""]]}),
+  S({company:"SW Waterproofing Inc",phone:"310-320-0752",email:"swwaterproofing@att.net",lic:"574852",trade:"Waterproofing",notes:"Waterproofing — most projects",
+     scope:"Waterproofing of decks, balconies, planters, and below-grade walls per estimate.",
+     pay:"10% deposit; 90% on completion and inspection.",
+     ms:[["Deposit",10,""],["Completion & inspection",90,""]]}),
+  S({company:"Iron Art Inc",contact:"Raymond Perron",phone:"310-379-8772",email:"raymond.c.perron@gmail.com",lic:"663131",trade:"Railings / Metal Fabrication",notes:"Railings — 1644 Goodman",
+     scope:"Fabricate and install interior and exterior guardrails and handrails per plan and code.",
+     pay:"50% deposit/fabrication; 50% at installation.",
+     ms:[["Deposit / fabrication",50,""],["Installation",50,""]]}),
+  S({company:"American Star Garage Doors",phone:"424-350-4333",email:"aaamericanstar@gmail.com",trade:"Windows & Doors",notes:"Garage doors — multiple projects",
+     scope:"Furnish and install garage doors, tracks, openers, and hardware per proposal.",
+     pay:"50% deposit; 50% on completion.",
+     ms:[["Deposit",50,""],["Completion",50,""]]}),
+  S({company:"Beach Cities Painting LLC",contact:"Pat",phone:"310-869-3924",email:"patpaints4u@yahoo.com",lic:"900780",trade:"Painting",notes:"Painting — Marshallfield",
+     scope:"Complete all interior and exterior painting as required.",
+     pay:"Time and materials at the rates on the painter worksheet attached.",
+     ms:[]})
+];
+const SEED_ENT=[
+  {name:"MAB Properties Inc",contact:"Brian Burrescia",addr:"2330 Santa Fe Ave, Torrance, CA 90501",phone:"",email:"",lic:""},
+  {name:"MJ Property Investments, LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"1811 Clark Lane LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2001 Farrell Ave LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2203-2205 Marshallfield Lane LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2306 Clark Lane LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2412 Carnegie Lane LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2420 Ives Lane LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2406 Mathews Ave LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"2406 Curtis LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"627 S Broadway LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""},
+  {name:"1644 Goodman Ave LLC",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""}
+];
+function loadDir(){
+  if(LS_OK){
+    try{SUBS=JSON.parse(localStorage.getItem("SCB_SUBS"));}catch(e){SUBS=null;}
+    try{ENTITIES=JSON.parse(localStorage.getItem("SCB_ENT"));}catch(e){ENTITIES=null;}
+  }
+  if(!Array.isArray(SUBS))SUBS=SEED_SUBS.slice();
+  if(!Array.isArray(ENTITIES))ENTITIES=SEED_ENT.slice();
+}
+function persistDir(){if(LS_OK){try{localStorage.setItem("SCB_SUBS",JSON.stringify(SUBS));localStorage.setItem("SCB_ENT",JSON.stringify(ENTITIES));}catch(e){}}}
+function saveDir(){readDirEditors();persistDir();renderPickers();toast(LS_OK?"Directory saved":"Saved for now — use Export to keep a backup file");}
+function esc(s){return(s||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");}
+function tradeOpts(sel){return'<option value="">—</option>'+Object.keys(SCOPE_LIBRARY).map(t=>`<option ${t===sel?"selected":""}>${t}</option>`).join("");}
+function renderPickers(){
+  const sel=$("subSel");sel.innerHTML='<option value="">— pick saved sub —</option>';
+  SUBS.forEach((s,i)=>{const o=document.createElement("option");o.value=i;o.textContent=(s.company||"(unnamed)")+(s.trade?" · "+s.trade:"");sel.appendChild(o);});
+  const es=$("entitySel");es.innerHTML='<option value="">— pick —</option>';
+  ENTITIES.forEach((e,i)=>{const o=document.createElement("option");o.value=i;o.textContent=e.name||"(unnamed)";es.appendChild(o);});
+  $("subCount").textContent=SUBS.length;$("entCount").textContent=ENTITIES.length;
+}
+function fillSub(){
+  const i=$("subSel").value;if(i==="")return;const s=SUBS[+i];
+  // Subcontractor side
+  $("subcontractor").value=s.company||"";$("sName").value=s.contact||"";$("sAddr").value=s.addr||"";
+  $("sPhone").value=s.phone||"";$("sEmail").value=s.email||"";$("sLic").value=s.lic||"";$("sTax").value=s.tax||"";
+  if(s.trade)$("tradeSel").value=s.trade;
+  // Scope: prefer the sub's saved scope, else the trade checklist
+  $("scopeList").innerHTML="";
+  if(s.scope&&s.scope.trim())addScope(s.scope,true);
+  else if(s.trade&&SCOPE_LIBRARY[s.trade])SCOPE_LIBRARY[s.trade].forEach(x=>addScope(x,true));
+  // Payment terms + milestones
+  if(s.pay)$("payNote").value=s.pay;
+  if(Array.isArray(s.ms)&&s.ms.length){$("msList").innerHTML="";s.ms.forEach(m=>addMilestone(m[0],m[1],m[2]));}
+  recalc();buildEmail();
+  toast("Loaded "+(s.company||"sub")+" — scope, payment & signature");
+}
+function fillEntity(){
+  const i=$("entitySel").value;if(i==="")return;const e=ENTITIES[+i];
+  $("contractor").value=e.name||"";$("cAddr").value=e.addr||"";$("cPhone").value=e.phone||"";
+  $("cEmail").value=e.email||"";$("cLic").value=e.lic||"";buildEmail();toast("Contractor set to "+(e.name||"entity"));
+}
+function useAddressLLC(){
+  const site=$("site").value.trim();if(!site){alert("Enter the Site address first.");return;}
+  const street=site.split(",")[0].trim();$("contractor").value=street+" LLC";toast("Contractor set to "+street+" LLC");
+}
+function subRowHTML(s,i){return `<div class="dir-row" data-i="${i}" data-ms='${esc(JSON.stringify(s.ms||[]))}' style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+ <div class="grid three">
+  <div><label>Company</label><input data-k="company" value="${esc(s.company)}"></div>
+  <div><label>Trade</label><select data-k="trade">${tradeOpts(s.trade)}</select></div>
+  <div><label>Contact name</label><input data-k="contact" value="${esc(s.contact)}"></div>
+  <div><label>Phone</label><input data-k="phone" value="${esc(s.phone)}"></div>
+  <div><label>Email</label><input data-k="email" value="${esc(s.email)}"></div>
+  <div><label>License #</label><input data-k="lic" value="${esc(s.lic)}"></div>
+  <div class="full"><label>Address</label><input data-k="addr" value="${esc(s.addr)}"></div>
+  <div><label>Tax ID/SSN</label><input data-k="tax" value="${esc(s.tax)}"></div>
+  <div class="full"><label>Notes</label><input data-k="notes" value="${esc(s.notes)}"></div>
+  <div class="full"><label>Default scope</label><textarea data-k="scope" rows="2">${esc(s.scope)}</textarea></div>
+  <div class="full"><label>Default payment terms</label><textarea data-k="pay" rows="2">${esc(s.pay)}</textarea></div>
+ </div>
+ <div class="muted" style="margin:4px 0 6px">Milestone template: ${(s.ms&&s.ms.length)?s.ms.map(m=>esc(m[0])+" "+(m[1]!==""&&m[1]!=null?m[1]+"%":(m[2]?"$"+m[2]:""))).join(" · "):"none (loads from current form when you Update)"}</div>
+ <button class="btn x sm" onclick="delSub(${i})">Remove</button></div>`;}
+function entRowHTML(e,i){return `<div class="dir-row" data-i="${i}" style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+ <div class="grid">
+  <div class="full"><label>Entity / LLC name</label><input data-k="name" value="${esc(e.name)}"></div>
+  <div class="full"><label>Contact name (used in the insurance request block)</label><input data-k="contact" value="${esc(e.contact)}"></div>
+  <div class="full"><label>Address</label><input data-k="addr" value="${esc(e.addr)}"></div>
+  <div><label>Phone</label><input data-k="phone" value="${esc(e.phone)}"></div>
+  <div><label>Email</label><input data-k="email" value="${esc(e.email)}"></div>
+  <div><label>License #</label><input data-k="lic" value="${esc(e.lic)}"></div>
+ </div><button class="btn x sm" style="margin-top:6px" onclick="delEnt(${i})">Remove</button></div>`;}
+function renderDirEditors(){$("subDir").innerHTML=SUBS.map(subRowHTML).join("");$("entDir").innerHTML=ENTITIES.map(entRowHTML).join("");}
+function readDirEditors(){
+  SUBS=[...document.querySelectorAll("#subDir .dir-row")].map(r=>{const o={};r.querySelectorAll("[data-k]").forEach(el=>o[el.dataset.k]=el.value);try{o.ms=JSON.parse(r.dataset.ms||"[]");}catch(e){o.ms=[];}return o;});
+  ENTITIES=[...document.querySelectorAll("#entDir .dir-row")].map(r=>{const o={};r.querySelectorAll("[data-k]").forEach(el=>o[el.dataset.k]=el.value);return o;});
+}
+function addSubRow(){readDirEditors();SUBS.push(S({}));renderDirEditors();persistDir();renderPickers();}
+function addEntRow(){readDirEditors();ENTITIES.push({name:"",addr:"720 Rita Street, Redondo Beach, CA 90277",phone:"310-800-0510",email:"",lic:""});renderDirEditors();persistDir();renderPickers();}
+function delSub(i){readDirEditors();SUBS.splice(i,1);renderDirEditors();persistDir();renderPickers();}
+function delEnt(i){readDirEditors();ENTITIES.splice(i,1);renderDirEditors();persistDir();renderPickers();}
+function exportDir(){readDirEditors();const blob=new Blob([JSON.stringify({subs:SUBS,entities:ENTITIES},null,2)],{type:"application/json"});saveAs(blob,"subcontract_directory.json");toast("Directory backup exported");}
+function importDir(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(Array.isArray(d.subs))SUBS=d.subs;if(Array.isArray(d.entities))ENTITIES=d.entities;persistDir();renderDirEditors();renderPickers();toast("Directory imported");}catch(err){alert("Could not read that file.");}};r.readAsText(f);e.target.value="";}
+// Save the current form (scope + payment + milestones + sub fields) as a directory entry
+function subFromForm(){
+  return S({company:$("subcontractor").value,trade:$("tradeSel").value,contact:$("sName").value,addr:$("sAddr").value,
+    phone:$("sPhone").value,email:$("sEmail").value,lic:$("sLic").value,tax:$("sTax").value,
+    scope:getScope().join(" "),pay:$("payNote").value,
+    ms:getMilestones().map(m=>[m.desc,m.pct,m.amt||""])});
+}
+function saveSubFromForm(){
+  const sub=subFromForm();
+  if(!sub.company){alert("Enter the Subcontractor name first.");return;}
+  readDirEditors();
+  const idx=SUBS.findIndex(x=>(x.company||"").toLowerCase()===sub.company.toLowerCase());
+  if(idx>=0){if(!confirm('"'+sub.company+'" already exists. Update it with the current form (scope, payment, milestones, contact)?'))return;
+    sub.notes=SUBS[idx].notes||"";SUBS[idx]=sub;toast("Updated "+sub.company);}
+  else{SUBS.push(sub);toast("Saved new sub: "+sub.company);}
+  persistDir();renderDirEditors();renderPickers();
+  $("subSel").value=SUBS.findIndex(x=>x.company===sub.company);
+}
+
+/* ---------- FIXED LEGAL CLAUSES ---------- */
+function legalClauses(wcState,defaultDays){return [
+["6","Obligation to Prosecute Work.","Subcontractor agrees to stay thoroughly informed as to the progress of the job, to begin the Work promptly after notification by Contractor to prosecute the Work continuously and uninterrupted with all possible speed, and to complete the entire Work covered by this Subcontract. Subcontractor agrees to prosecute its work, and the several parts thereof, at such times and in such order as Contractor considers necessary to keep same sufficiently in advance of the other parts of the construction and to avoid any delay in the completion of the Project as a whole. Unless otherwise authorized by Contractor, Subcontractor shall inform Contractor immediately of any directions or instructions that Subcontractor receives from Owner. Subcontractor may not and shall not contract directly with Owner."],
+["7","Delay.","In the event that Subcontractor’s Work is delayed for any reason, including acts of the Contractor, Subcontractor’s sole remedy shall be an extension of time equal to the period of delay, provided Subcontractor has given Contractor written notice of the commencement of delay within 48 hours of its occurrence. In the event that Contractor, in its sole discretion, should seek compensation from the Owner as a result of any delay, Subcontractor shall be entitled to an equitable portion of any amount recovered by Contractor, minus an aliquot share of the cost or pursuing such claim. This provision shall not be construed to require the Contractor to pursue any delay claim against the Owner or any other party."],
+["8","Compliance with Laws.","Subcontractor agrees that all materials furnished hereunder and the installation thereof shall comply in every respect with all applicable federal and state laws and regional and local codes, ordinances, and regulations."],
+["9","Inspection and Protection of Work.","Subcontractor shall make the Work accessible at all reasonable times for inspection by the Contractor. Subcontractor shall, at the first opportunity, inspect all material and equipment delivered to the job site by others to be used or incorporated in the Subcontractor’s Work and give prompt notice of any defect therein. Subcontractor assumes full responsibility to protect the Work done hereunder until final acceptance by Owner and Contractor."],
+["10","Obligation to Remedy Defective Work.","Subcontractor shall promptly amend and make good any defective materials and/or workmanship to the entire approval and acceptance of Contractor. Should Subcontractor refuse or neglect to proceed at once with the correction of rejected or defective workmanship and/or materials after receiving notice to do so, it is agreed that Contractor shall have the defects remedied and/or changes made at the expense of Subcontractor."],
+["11","Claims.","If any dispute shall arise between Contractor and Subcontractor regarding performance of the Work, or any alleged change in the Work, Subcontractor shall timely perform the disputed Work and shall give written notice of a claim for additional compensation for the Work prior to commencement of the disputed Work. Subcontractor’s failure to give written notice prior to commencement constitutes an agreement by Subcontractor that it will receive no extra compensation for the disputed Work."],
+["12","Clean-up Obligations.","Subcontractor shall clean up and remove from the site, as directed by Contractor, all rubbish and debris resulting from the Work covered by this Subcontract. Subcontractor shall also remove to the satisfaction of Contractor all dirt, grease, and marks from walls, ceilings, floors, and fixtures, deposited or placed thereon as a result of the execution of this Subcontract."],
+["13","Warranty.","Subcontractor warrants to Owner and Contractor that all materials and equipment furnished shall be new unless otherwise specified and that all Work under this Subcontract will be performed in a good and workmanlike manner, shall be of good quality, free from faults and defects, and in conformance with the Contract Documents. All Work not conforming to these requirements, including substitutions not properly approved and authorized, may be considered defective. The warranty provided in this Section shall be in addition to and not in limitation of any other warranty or remedy required by law or by the Contract Documents."],
+["14","Changes.","Contractor reserves the right to require changes in, deviation from, additions to, and omissions from the Work covered by this Subcontract, and the Subcontract Price and Time for Performance shall be adjusted accordingly. Before proceeding with any changes, deviations, additions, or omissions, Subcontractor will first obtain written authorization from Contractor, which authorization will state any changes in the amount due Subcontractor or in the date for completion of Subcontractor's Work."],
+["15","Indemnification.","To the fullest extent permitted by law, Subcontractor shall indemnify and hold harmless Owner and Contractor and their agents and employees from claims, demands, causes of actions, and liabilities of every kind and nature whosoever arising out of or in connection with Subcontractor’s operations performed under this Subcontract. This indemnification shall extend to claims occurring after this Subcontract is terminated as well as while it is in force. The indemnity shall apply regardless of any active and/or passive negligent act or omission of Owner or Contractor, or their agents or employees; but Subcontractor shall not be obligated to indemnify any party for claims arising from the sole negligence or willful misconduct of Owner or Contractor or their agents or employees or caused solely by the designs provided by such parties. The indemnity set forth in this Section shall not be limited by insurance requirements or by any other provision of this Subcontract. All work covered by this Subcontract done at the site or in preparing or delivering materials or equipment to the site shall be at the sole risk of Subcontractor until the completed Work is accepted by Contractor."],
+["16","Insurance.","Before commencing the Work, Subcontractor shall at its expense, procure and maintain insurance from a responsible insurance carrier as required by this Section. All insurance coverages shall be in amounts and for durations acceptable to Contractor and as required by the General Contract. Subcontractor shall, when required by Contractor, name Contractor as an additional insured under the policies where specified. Subcontractor shall provide certificates of insurance to Contractor. The certificates of insurance shall provide that there will be no cancellation nor reduction of coverage without thirty (30) days’ prior written notice to Contractor."],
+["16.1","General Liability.","(a) Limit of Liability—$2,000,000 each occurrence; (b) Personal Injury Liability—$1,000,000; (c) Coverage shall include: premises & operations, explosion, collapse, and underground hazards; products/completed operations; blanket contractual; broad-form property damage; independent contractors; (d) General Contractor is named additional insured and shall receive 30 days' written notice of any reduction in or cancellation of policy. Such insurance shall be primary and noncontributory with any other insurance carried by General Contractor."],
+["16.2","Comprehensive Automotive.","(a) Limit of Liability—$1,000,000, combined single limit of bodily injury and property damage liability; (b) Coverage shall include owned, hired, and non-owned automotive liability; and (c) General Contractor is named additional insured and shall receive 30 days' written notice of any reduction in or cancellation of policy."],
+["16.3","Workers' Compensation.","Workers’ Compensation as required by the workers' compensation laws of the State of "+wcState+", or the state in which the contract is being performed."],
+["17","Default by Subcontractor; Remedies.","Should Subcontractor fail or refuse to deliver any and all materials as required, or to perform properly any and all Work in keeping with the progress of the general construction work, or to perform properly any term, covenant, or condition contained in the Subcontract, or to proceed with its work as directed by Contractor, or to perform said Work in accordance herewith, in whole or in part, Contractor may on "+defaultDays+" days’ written notice to Subcontractor’s last known address take any steps it deems advisable to secure satisfactory completion of the Work covered by this Subcontract, including termination of this Subcontract. Should Subcontractor, in the opinion of Contractor, be in default of this Subcontract, Contractor may appropriate and use for the purpose of completing the Work covered by this Subcontract all materials, supplies, equipment, tools, and facilities of Subcontractor, regardless of their location. Subcontractor agrees that it will include in all of its sub-subcontracts and/or purchase orders pertaining to this Subcontract, suitable provisions that permit Contractor to assume such sub-subcontracts and/or purchase orders to complete the Work should Subcontractor default. Should Contractor terminate this Subcontract in accordance with this section, no further payments will be made to Subcontractor until such time that the Work covered by this Subcontract has been completed and accepted by Contractor."],
+["18","General Provisions.",""],
+["18.1","Notices.","All notices under this Subcontract shall be effective upon personal delivery to Subcontractor or Contractor, as the case may be, or 3 business days after deposit in the United States mail, registered or certified, postage fully prepaid and addressed to the respective parties at the address set forth herein or such other address as the parties may from time to time designate in writing."],
+["18.2","No Assignment.","Subcontractor shall not assign or otherwise transfer any or all rights or obligations herein, whether voluntarily or by operation of law. Any such assignment or other transfer shall be voidable at the option of Contractor. Except as set forth above, this Subcontract shall be binding upon and inure to the benefit of the successors and assigns of the parties hereto."],
+["18.3","Successors.","The terms, covenants, and conditions of this Subcontract shall be binding upon and shall inure to the benefit of the heirs, executors, administrators, and assigns of the respective parties hereto."],
+["18.4","Choice of Laws.","This Subcontract shall be governed by the laws of the State where the Project is located, and any question arising hereunder shall be construed or determined according to such law."],
+["18.5","Alternative Dispute Resolution.","All claims and disputes between Contractor and Subcontractor shall be subject to the Alternative Dispute Resolution provisions, if any, set forth in the General Contract."],
+["18.6","Attorney’s Fees.","In the event of any action or arbitration between the parties seeking enforcement of any of the terms and conditions of this Subcontract, the prevailing party in such action or arbitration shall be awarded, in addition to damage, injunctive or other relief, its reasonable costs and expenses, including, but not limited to, taxable costs and reasonable attorney’s fees."],
+["18.7","Time of Essence.","Time shall be of the essence of this Subcontract. The term “day” as used herein and in any instructions to the Subcontractor shall mean “calendar day”. In the event a time for performance, notice, approval, or any other matter occurs on a Sunday or legal holiday, the time therefor shall be extended to the next day not a Sunday or legal holiday."],
+["18.8","Independent Contractor.","It is expressly understood that an independent contractor relationship is hereby established between the Contractor and the Subcontractor. The Subcontractor shall be responsible for supervision, superintending, and directing the performance of the Work under this Subcontract. It is further agreed that all subcontracts, purchase orders, payrolls, and other commitments necessary for the performance of this Work shall be in the name of the Subcontractor and under its responsibility."],
+["18.9","Taxes.","Subcontractor shall pay all sales, use, excise, unemployment compensation, and other taxes on the material and labor furnished under this Subcontract, as required by federal, state, and local government agencies."],
+["18.10","Counterparts.","This Subcontract may be executed in any number of counterparts, each of which shall be deemed to be an original, but all of which shall constitute the same Subcontract."],
+["18.11","Entire Agreement.","This Subcontract and the items incorporated herein contain all of the agreements of the parties hereto with respect to the matters contained herein. No prior agreement or understanding pertaining to any such matter shall be effective for any purpose. No provisions of this Subcontract may be amended or modified in any manner whatsoever except by an agreement in writing signed by each of the parties hereto."]
+];}
+
+/* ---------- DOCX GENERATION ---------- */
+function fmtDate(iso){if(!iso)return{day:"____",month:"____________",year:"______"};
+  const d=new Date(iso+"T00:00:00");const day=d.getDate();
+  const sfx=(day%10==1&&day!=11)?"st":(day%10==2&&day!=12)?"nd":(day%10==3&&day!=13)?"rd":"th";
+  return{day:day+sfx,month:d.toLocaleString("en-US",{month:"long"}),year:d.getFullYear()};
+}
+function genDocx(returnBlob){
+  if(typeof docx==="undefined"){if(returnBlob)return Promise.reject(new Error("The Word engine did not load."));alert("The Word library didn't load (need internet). Use 'Print / Save as PDF' instead.");return;}
+  const D=docx,{Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType,BorderStyle}=D;
+  const v=id=>$(id).value.trim();
+  const dt=fmtDate(v("aDate"));
+  const scope=getScope();const ms=getMilestones();
+  const clauses=legalClauses(v("wcState")||"Nevada",v("defaultDays")||"3");
+  const FS=20; // 10pt half-points
+  const norm=t=>new TextRun({text:t,size:FS,font:"Calibri"});
+  const bold=t=>new TextRun({text:t,bold:true,size:FS,font:"Calibri"});
+  const p=(children,opt={})=>new Paragraph({children,spacing:{after:140},...opt});
+  const line=(label,val)=>p([bold(label+"  "),norm(val||"")]);
+  const els=[];
+  els.push(new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:200},children:[new TextRun({text:"SUBCONTRACT AGREEMENT",bold:true,size:30,font:"Calibri"})]}));
+  els.push(p([norm("THIS SUBCONTRACT is made as of this "),bold(dt.day),norm(" day of "),bold(dt.month),norm(", "),bold(String(dt.year)),norm(", by and between "),bold(v("contractor")||"________________"),norm(" (“Contractor”) and "),bold(v("subcontractor")||"______"),norm(" (“Subcontractor”).")]));
+  els.push(line("Project:",v("project")));
+  els.push(line("Owner:",v("owner")));
+  els.push(line("Site:",v("site")));
+  els.push(line("APN:",v("apn")));
+  els.push(line("General Contractor:",`${v("genContractor")||""}${v("genContractor")?"  —  ":""}Construction Contract between Contractor and Owner${v("gcDated")?", dated "+v("gcDated"):""}`));
+  els.push(line("Plans and Specifications:",v("plans")));
+  // 1 Basic
+  els.push(p([bold("1.  Basic Agreement.  "),norm("Subcontractor shall perform the Work on the Project at the Site in accordance with the Plans and Specifications, the provisions of the General Contract (including all the Contract Documents), and the provisions of this Subcontract in exchange for payment of the Subcontract Price, all as set forth herein.")]));
+  // 2 Scope
+  els.push(p([bold("2.  Description of the Work.  "),norm("The Work to be performed by Subcontractor is described as follows:")]));
+  if(scope.length)scope.forEach(s=>els.push(new Paragraph({bullet:{level:0},spacing:{after:80},children:[norm(s)]})));
+  else els.push(p([norm("____________________________________________")]));
+  // 3 Time
+  els.push(p([bold("3.  Time for Performance.  "),norm("The time for Subcontractor’s performance of the Work is described as follows:  "),norm(v("timePerf"))]));
+  // 4 Price
+  const price=+v("price")||0;
+  els.push(p([bold("4.  Calculation of the Subcontract Price.  "),norm("The Subcontract Price shall be calculated on a “Stipulated Sum” basis as follows:  "),bold(price?numToWords(price):"____________________")]));
+  // 5 Payment
+  els.push(p([bold("5.  Payment of the Subcontract Price.  "),norm("The Subcontract Price shall be paid as follows:")]));
+  els.push(p([bold("(a)  "),norm(v("payNote")||"Subcontractor shall be paid in accordance with the milestone schedule below.")]));
+  if(ms.length){
+    const cell=(txt,w,opts={})=>new TableCell({width:{size:w,type:WidthType.PERCENTAGE},margins:{top:40,bottom:40,left:80,right:80},children:[new Paragraph({alignment:opts.align||AlignmentType.LEFT,children:[opts.bold?bold(txt):norm(txt)]})]});
+    const rows=[new TableRow({tableHeader:true,children:[cell("Milestone",58,{bold:true}),cell("%",14,{bold:true,align:AlignmentType.CENTER}),cell("Amount",28,{bold:true,align:AlignmentType.RIGHT})]})];
+    let tot=0;
+    ms.forEach(m=>{tot+=m.amt;rows.push(new TableRow({children:[cell(m.desc,58),cell(m.pct?(+m.pct).toFixed(1)+"%":"",14,{align:AlignmentType.CENTER}),cell(money(m.amt),28,{align:AlignmentType.RIGHT})]}));});
+    rows.push(new TableRow({children:[cell("TOTAL",58,{bold:true}),cell(price?((tot/price*100).toFixed(1)+"%"):"",14,{bold:true,align:AlignmentType.CENTER}),cell(money(tot),28,{bold:true,align:AlignmentType.RIGHT})]}));
+    const b={style:BorderStyle.SINGLE,size:4,color:"888888"};
+    els.push(new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:{top:b,bottom:b,left:b,right:b,insideHorizontal:b,insideVertical:b},rows}));
+    els.push(new Paragraph({spacing:{after:140},children:[norm("")]}));
+  }
+  els.push(p([bold("(b)  "),norm("Subcontractor agrees to furnish, if and when required by Contractor, payroll affidavits, receipts, vouchers, and releases of claims for labor and material, and agrees to furnish same from its sub-subcontractors, suppliers and/or material men in form satisfactory to Contractor, prior to receipt of any payment. Contractor may, at its option, make any payment or portion thereof by joint check payable to Subcontractor and any of its sub-subcontractors, suppliers, and/or material men.")]));
+  els.push(p([bold("(c)  "),norm("If Owner or other responsible party delays making payment to Contractor from which payment to Subcontractor is to be made, Contractor and its sureties shall have a reasonable time to make payment to Subcontractor. “Reasonable Time” shall be determined according to the relevant circumstances, but in no event shall be less than the time Contractor, Contractor’s sureties, and Subcontractor require to pursue to conclusion their legal remedies against Owner or other responsible party to obtain payment, including but not limited to mechanic’s lien remedies.")]));
+  // remaining clauses
+  clauses.forEach(c=>{
+    if(c[2]==="")els.push(p([bold(c[0]+".  "+c[1])]));
+    else{const indent=c[0].includes(".")?{indent:{left:360}}:{};
+      els.push(p([bold(c[0]+(c[0].includes(".")?"  ":".  ")+c[1]+"  "),norm(c[2])],indent));}
+  });
+  // 19 Other
+  els.push(p([bold("19.  Other Provisions.  "),norm(v("otherProv")||"None.")]));
+  // closing
+  els.push(p([norm("IN WITNESS WHEREOF, the parties have executed this Agreement on the date first above written.")],{spacing:{before:200,after:240}}));
+  // signature table
+  const sigCell=(rows)=>new TableCell({width:{size:50,type:WidthType.PERCENTAGE},margins:{top:60,bottom:60,left:100,right:100},children:rows});
+  const sline=(label,val)=>new Paragraph({spacing:{after:160},children:[bold(label+" "),norm(val||"______________________________")]});
+  /* Hidden DocuSign anchor text: white, 1pt. Invisible on the page and in print, but DocuSign
+     finds it in the extracted text and drops the signature/date tabs there automatically. */
+  const dsAnchor=t=>new TextRun({text:" "+t,color:"FFFFFF",size:2,font:"Calibri"});
+  const slineA=(label,val,a)=>new Paragraph({spacing:{after:160},children:[bold(label+" "),norm(val||"______________________________"),dsAnchor(a)]});
+  const cCol=[new Paragraph({spacing:{after:120},children:[bold("Contractor:")]}),
+    slineA("By:","","/cn1/"),sline("Print name:",v("cName")),sline("Address:",v("cAddr")),sline("Telephone:",v("cPhone")),sline("State License No.:",v("cLic"))];
+  const sCol=[new Paragraph({spacing:{after:120},children:[bold("Subcontractor:  "),norm(v("subcontractor"))]}),
+    slineA("By:","","/sn1/"),sline("Print name:",v("sName")),sline("Address:",v("sAddr")),sline("Telephone:",v("sPhone")),sline("State License No.:",v("sLic")),sline("Tax ID / SS No.:",v("sTax")),
+    new Paragraph({spacing:{after:60},children:[bold("Workers’ Compensation Certificate No.: "),norm("__________")]}),
+    new Paragraph({children:[bold("Certificate of Insurance: "),norm("Attached ☐")]})];
+  els.push(new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:{top:{style:BorderStyle.NONE},bottom:{style:BorderStyle.NONE},left:{style:BorderStyle.NONE},right:{style:BorderStyle.NONE},insideHorizontal:{style:BorderStyle.NONE},insideVertical:{style:BorderStyle.SINGLE,size:4,color:"CCCCCC"}},rows:[new TableRow({children:[sigCell(cCol),sigCell(sCol)]})]}));
+
+  const doc=new Document({sections:[{properties:{page:{margin:{top:1080,bottom:1080,left:1080,right:1080}}},children:els}]});
+  const _pr=Packer.toBlob(doc).then(blob=>({
+    blob,
+    name:("Subcontract_"+(v("subcontractor")||"Sub")+"_"+(v("project")||"")).replace(/[^a-z0-9]+/gi,"_").replace(/_+$/,"")+".docx"
+  }));
+  if(returnBlob)return _pr;                      // used by the DocuSign card
+  _pr.then(({blob,name})=>{saveAs(blob,name);toast("Word document downloaded");})
+     .catch(e=>{console.error(e);alert("Generation error: "+e.message);});
+}
+
+/* ---------- INIT ---------- */
+Object.keys(SCOPE_LIBRARY).forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;$("tradeSel").appendChild(o);});
+SCOPE_LIBRARY["Foundation / Concrete"].forEach(s=>addScope(s,true));
+[["Mobilization / deposit",20,""],["Footings & rebar inspection passed",30,""],["Concrete poured & stripped",30,""],["Final completion & acceptance",20,""]].forEach(m=>addMilestone(m[0],m[1],m[2]));
+renderDocReqs();
+loadDir();renderDirEditors();renderPickers();
+loadProjects();renderProjPicker();
+// Auto-save the directory whenever any field in it changes (fixes "new subs not saved")
+let _dirTimer=null;
+function autoSaveDir(){clearTimeout(_dirTimer);_dirTimer=setTimeout(()=>{readDirEditors();persistDir();renderPickers();},400);}
+["subDir","entDir"].forEach(id=>{const el=$(id);el.addEventListener("input",autoSaveDir);el.addEventListener("change",autoSaveDir);});
+if(!LS_OK){const b=document.querySelector(".wrap");if(b){const w=document.createElement("div");w.className="card";w.style.borderColor="#c2410c";w.innerHTML='<b style="color:#c2410c">Heads up:</b> this browser is blocking local storage, so directory/project changes won\'t persist automatically. Use <b>Export backup</b> to save your data to a file, and <b>Import backup</b> to reload it.';b.insertBefore(w,b.firstChild);}}
+$("aDate").value=new Date().toISOString().slice(0,10);
+["subcontractor","project","site","contractor","cName","cPhone","cEmail"].forEach(id=>$(id).addEventListener("input",buildEmail));
+recalc();
+
+/* =====================================================================
+   PATCH - August 2026
+   1. Word engine now loads from the local lib\ folder. The old cdnjs URL
+      (ajax/libs/docx/8.5.0/docx.js) returns 404, so "docx" was always
+      undefined and Download Word could never run.
+   2. Print / Save as PDF now renders the actual contract instead of the
+      on-screen form.
+   3. The insurance email rebuilds live from EVERY field and now includes
+      the scope, the price and the milestone schedule.
+   ===================================================================== */
+var EMAIL_TOUCHED=false;
+function pesc(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function pv(id){return $(id)?$(id).value.trim():"";}
+
+/* ---------- EMAIL (overrides the original buildEmail) ---------- */
+function buildEmail(){if(!EMAIL_TOUCHED)writeEmail();}
+function rebuildEmail(){EMAIL_TOUCHED=false;writeEmail();toast("Email rebuilt from the current fields");}
+/* Address book used for the "additional insured" block. The Directory is checked
+   first (Projects entities), so editing an entity there overrides these. */
+const AI_FALLBACK={
+  "mab properties inc":{contact:"Brian Burrescia",addr:"2330 Santa Fe Ave, Torrance, CA 90501"}
+};
+function entityByName(n){
+  n=(n||"").trim().toLowerCase();
+  if(!n)return null;
+  return (ENTITIES||[]).find(e=>(e.name||"").trim().toLowerCase()===n)||AI_FALLBACK[n]||null;
+}
+function addrLines(a){
+  a=(a||"").trim(); if(!a)return [];
+  const i=a.indexOf(",");
+  return i>0?[a.slice(0,i).trim(),a.slice(i+1).trim()]:[a];
+}
+/* indented name + address block listed under the Additional Insured bullet */
+function aiBlock(){
+  const out=[],pad="     ";
+  const ent=pv("contractor"),gcn=pv("genContractor");
+  if(ent){
+    out.push(pad+ent);
+    const r=entityByName(ent);
+    addrLines(r&&r.addr?r.addr:pv("cAddr")).forEach(l=>out.push(pad+l));
+  }
+  if(gcn&&gcn.trim().toLowerCase()!==ent.trim().toLowerCase()){
+    const g=entityByName(gcn);
+    if(out.length)out.push("");           // blank line between the two parties
+    out.push(pad+gcn);
+    if(g&&g.contact)out.push(pad+g.contact);
+    if(g)addrLines(g.addr).forEach(l=>out.push(pad+l));
+  }
+  return out;
+}
+function writeEmail(){
+  const sub=pv("subcontractor")||"[Subcontractor]";
+  const proj=pv("project")||"[Project]";
+  const site=pv("site");
+  const ent=pv("contractor")||"[Contractor LLC]";
+  const gcn=pv("genContractor");
+  const both=ent+(gcn&&gcn.trim().toLowerCase()!==ent.trim().toLowerCase()?" and "+gcn:"");
+  const reqs=[];
+  document.querySelectorAll("#docReqs input:checked").forEach(c=>{
+    reqs.push("   • "+c.parentNode.textContent.trim());
+    if(c.dataset.req==="ai")aiBlock().forEach(l=>reqs.push(l));
+  });
+  const L=[];
+  L.push("Subject: "+proj+" – Subcontract & Insurance Requirements for "+sub);
+  L.push("");
+  L.push("Hello,");
+  L.push("");
+  L.push("Thank you for agreeing to perform the work on "+proj+(site?" ("+site+")":"")+". The subcontract agreement has been sent to you through DocuSign for your review and signature.");
+  L.push("");
+  L.push("Before we can issue a notice to proceed, please provide the following:");
+  reqs.length?reqs.forEach(r=>L.push(r)):L.push("   • (no documents selected)");
+  L.push("Insurance must meet the contract limits: General Liability of $2,000,000 per occurrence and $1,000,000 personal injury; Automobile Liability of $1,000,000 combined single limit; and Workers' Compensation as required by law. "+both+" must be named as additional insured on a primary and non-contributory basis, with 30 days' written notice of cancellation.");
+  L.push("");
+  L.push("Please return the signed agreement and the items above at your earliest convenience so we can keep the project on schedule. Let me know if you have any questions.");
+  L.push("");
+  L.push("Best regards,");
+  L.push(ent);
+  if(pv("cPhone"))L.push(pv("cPhone"));
+  if(pv("cEmail"))L.push(pv("cEmail"));
+  $("emailBody").value=L.join("\n");
+}
+/* Rich-text version: the two additional-insured company names come out bold when
+   pasted into Gmail / Outlook / the DocuSign message box. Plain text is sent too,
+   so anything that can't take HTML still gets a clean copy. */
+function emailHTML(){
+  let h=pesc($("emailBody").value);
+  [pv("contractor"),pv("genContractor")].filter(Boolean).forEach(n=>{
+    const rx=pesc(n).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    h=h.replace(new RegExp("^(\\s{4,})("+rx+")\\s*$","gm"),"$1<b>$2</b>");
+  });
+  return '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;white-space:pre-wrap">'+h+"</div>";
+}
+function copyEmail(){
+  const text=$("emailBody").value;
+  const done=m=>toast(m);
+  if(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write){
+    navigator.clipboard.write([new ClipboardItem({
+      "text/plain":new Blob([text],{type:"text/plain"}),
+      "text/html":new Blob([emailHTML()],{type:"text/html"})
+    })]).then(()=>done("Email copied — bold formatting kept"))
+      .catch(()=>navigator.clipboard.writeText(text).then(()=>done("Email copied (plain text)")));
+  }else{
+    navigator.clipboard.writeText(text).then(()=>done("Email copied (plain text)"));
+  }
+}
+
+/* ---------- PRINT / SAVE AS PDF: render the real contract ---------- */
+function printCSS(){return `
+#printView{display:none}
+@media print{
+  header,.wrap,.toast{display:none !important}
+  body{background:#fff}
+  #printView{display:block;font:11pt/1.45 Calibri,"Segoe UI",Arial,sans-serif;color:#000}
+  @page{margin:0.85in}
+}
+#printView h1{font-size:15pt;text-align:center;margin:0 0 16pt;letter-spacing:.02em}
+#printView p{margin:0 0 7pt;text-align:justify}
+#printView p.ind{margin-left:24pt}
+#printView ul{margin:0 0 8pt;padding-left:24pt}
+#printView li{margin:0 0 3pt;text-align:justify}
+#printView table.mst{width:100%;border-collapse:collapse;margin:4pt 0 10pt}
+#printView table.mst th,#printView table.mst td{border:1px solid #888;padding:3pt 6pt;font-size:10.5pt}
+#printView table.mst th{background:#eee;text-align:left}
+#printView .num{text-align:right}
+#printView .ctr{text-align:center}
+#printView table.sig{width:100%;border-collapse:collapse;margin-top:16pt;page-break-inside:avoid}
+#printView table.sig td{width:50%;vertical-align:top;padding:0 16pt 0 0;font-size:10.5pt}
+#printView table.sig p{margin:0 0 13pt;text-align:left}
+`;}
+function buildPrintView(){
+  let box=$("printView");
+  if(!box){box=document.createElement("div");box.id="printView";document.body.appendChild(box);}
+  const e=pesc,dt=fmtDate(pv("aDate"));
+  const scope=getScope(),ms=getMilestones(),price=+pv("price")||0;
+  const clauses=legalClauses(pv("wcState")||"California",pv("defaultDays")||"3");
+  const line=(l,val)=>"<p><b>"+l+"</b> "+e(val||"")+"</p>";
+  let h="<h1>SUBCONTRACT AGREEMENT</h1>";
+  h+="<p>THIS SUBCONTRACT is made as of this <b>"+e(dt.day)+"</b> day of <b>"+e(dt.month)+"</b>, <b>"+e(dt.year)+"</b>, by and between <b>"+e(pv("contractor")||"________________")+"</b> (&ldquo;Contractor&rdquo;) and <b>"+e(pv("subcontractor")||"______")+"</b> (&ldquo;Subcontractor&rdquo;).</p>";
+  h+=line("Project:",pv("project"));
+  h+=line("Owner:",pv("owner"));
+  h+=line("Site:",pv("site"));
+  h+=line("APN:",pv("apn"));
+  h+=line("General Contractor:",(pv("genContractor")||"")+(pv("genContractor")?"  —  ":"")+"Construction Contract between Contractor and Owner"+(pv("gcDated")?", dated "+pv("gcDated"):""));
+  h+=line("Plans and Specifications:",pv("plans"));
+  h+="<p><b>1.&nbsp; Basic Agreement.&nbsp; </b>Subcontractor shall perform the Work on the Project at the Site in accordance with the Plans and Specifications, the provisions of the General Contract (including all the Contract Documents), and the provisions of this Subcontract in exchange for payment of the Subcontract Price, all as set forth herein.</p>";
+  h+="<p><b>2.&nbsp; Description of the Work.&nbsp; </b>The Work to be performed by Subcontractor is described as follows:</p>";
+  h+=scope.length?"<ul>"+scope.map(s=>"<li>"+e(s)+"</li>").join("")+"</ul>":"<p>____________________________________________</p>";
+  h+="<p><b>3.&nbsp; Time for Performance.&nbsp; </b>The time for Subcontractor&rsquo;s performance of the Work is described as follows:&nbsp; "+e(pv("timePerf"))+"</p>";
+  h+="<p><b>4.&nbsp; Calculation of the Subcontract Price.&nbsp; </b>The Subcontract Price shall be calculated on a &ldquo;Stipulated Sum&rdquo; basis as follows:&nbsp; <b>"+e(price?numToWords(price):"____________________")+"</b></p>";
+  h+="<p><b>5.&nbsp; Payment of the Subcontract Price.&nbsp; </b>The Subcontract Price shall be paid as follows:</p>";
+  h+="<p><b>(a)&nbsp; </b>"+e(pv("payNote")||"Subcontractor shall be paid in accordance with the milestone schedule below.")+"</p>";
+  if(ms.length){
+    let tot=0;ms.forEach(m=>tot+=m.amt);
+    h+='<table class="mst"><tr><th>Milestone</th><th class="ctr">%</th><th class="num">Amount</th></tr>';
+    ms.forEach(m=>{h+="<tr><td>"+e(m.desc)+'</td><td class="ctr">'+(m.pct?(+m.pct).toFixed(1)+"%":"")+'</td><td class="num">'+money(m.amt)+"</td></tr>";});
+    h+='<tr><td><b>TOTAL</b></td><td class="ctr"><b>'+(price?(tot/price*100).toFixed(1)+"%":"")+'</b></td><td class="num"><b>'+money(tot)+"</b></td></tr></table>";
+  }
+  h+="<p><b>(b)&nbsp; </b>Subcontractor agrees to furnish, if and when required by Contractor, payroll affidavits, receipts, vouchers, and releases of claims for labor and material, and agrees to furnish same from its sub-subcontractors, suppliers and/or material men in form satisfactory to Contractor, prior to receipt of any payment. Contractor may, at its option, make any payment or portion thereof by joint check payable to Subcontractor and any of its sub-subcontractors, suppliers, and/or material men.</p>";
+  h+="<p><b>(c)&nbsp; </b>If Owner or other responsible party delays making payment to Contractor from which payment to Subcontractor is to be made, Contractor and its sureties shall have a reasonable time to make payment to Subcontractor. &ldquo;Reasonable Time&rdquo; shall be determined according to the relevant circumstances, but in no event shall be less than the time Contractor, Contractor&rsquo;s sureties, and Subcontractor require to pursue to conclusion their legal remedies against Owner or other responsible party to obtain payment, including but not limited to mechanic&rsquo;s lien remedies.</p>";
+  clauses.forEach(c=>{
+    if(c[2]==="")h+="<p><b>"+e(c[0])+".&nbsp; "+e(c[1])+"</b></p>";
+    else h+='<p class="'+(c[0].includes(".")?"ind":"")+'"><b>'+e(c[0])+(c[0].includes(".")?"&nbsp; ":".&nbsp; ")+e(c[1])+"&nbsp; </b>"+e(c[2])+"</p>";
+  });
+  h+="<p><b>19.&nbsp; Other Provisions.&nbsp; </b>"+e(pv("otherProv")||"None.")+"</p>";
+  h+='<p style="margin-top:14pt">IN WITNESS WHEREOF, the parties have executed this Agreement on the date first above written.</p>';
+  const sl=(l,val)=>"<p><b>"+l+"</b> "+e(val||"______________________________")+"</p>";
+  h+='<table class="sig"><tr><td><p><b>Contractor:</b> '+e(pv("contractor"))+"</p>"+sl("By:","")+sl("Print name:",pv("cName"))+sl("Address:",pv("cAddr"))+sl("Telephone:",pv("cPhone"))+sl("State License No.:",pv("cLic"))+"</td>";
+  h+="<td><p><b>Subcontractor:</b> "+e(pv("subcontractor"))+"</p>"+sl("By:","")+sl("Print name:",pv("sName"))+sl("Address:",pv("sAddr"))+sl("Telephone:",pv("sPhone"))+sl("State License No.:",pv("sLic"))+sl("Tax ID / SS No.:",pv("sTax"))+"<p><b>Workers&rsquo; Compensation Certificate No.:</b> __________</p><p><b>Certificate of Insurance:</b> Attached &#9744;</p></td></tr></table>";
+  box.innerHTML=h;
+}
+
+/* ---------- LIVE DIRECTORY ----------
+   Served over http(s), the tool talks to /api/directory, which keeps the subs and
+   entities in a Cloudflare KV namespace shared by every device that opens the site.
+   Every change saves within a second - no Import/Export. Opened straight from the
+   .html file there is no API to reach, so it falls back to browser storage. */
+var SERVED=location.protocol==="http:"||location.protocol==="https:";
+var DIR_LOADED=false,DIR_TIMER=null;
+function setDirStatus(msg,ok){
+  const el=$("dirStatus"); if(!el)return;
+  el.textContent=msg;
+  el.style.color=ok===false?"var(--bad)":ok===true?"var(--ok)":"var(--mut)";
+}
+async function loadDirLive(){
+  if(!SERVED)return false;
+  try{
+    const r=await fetch("/api/directory",{cache:"no-store"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    if(!Array.isArray(d.subs)||!Array.isArray(d.entities))throw new Error("unexpected file shape");
+    // fresh host with an empty store: seed it from the vendor_directory.json shipped alongside
+    let seeded=false;
+    if(d._empty||(!d.subs.length&&!d.entities.length)){
+      const seed=await fetch("vendor_directory.json",{cache:"no-store"}).then(x=>x.ok?x.json():null).catch(()=>null);
+      if(seed&&Array.isArray(seed.subs)&&seed.subs.length){
+        d.subs=seed.subs;d.entities=seed.entities||[];seeded=true;
+      }
+    }
+    // first-run safety: fold in anything this browser knows that the file doesn't
+    let merged=0;
+    const seen=new Set(d.subs.map(s=>(s.company||"").trim().toLowerCase()));
+    (Array.isArray(SUBS)?SUBS:[]).forEach(s=>{
+      const n=(s.company||"").trim().toLowerCase();
+      if(n&&!seen.has(n)){d.subs.push(s);seen.add(n);merged++;}
+    });
+    const seenE=new Set(d.entities.map(e=>(e.name||"").trim().toLowerCase()));
+    (Array.isArray(ENTITIES)?ENTITIES:[]).forEach(e=>{
+      const n=(e.name||"").trim().toLowerCase();
+      if(n&&!seenE.has(n)){d.entities.push(e);seenE.add(n);merged++;}
+    });
+    SUBS=d.subs.map(S);ENTITIES=d.entities;
+    DIR_LOADED=true;
+    renderDirEditors();renderPickers();
+    setDirStatus("Live - "+SUBS.length+" subs, "+ENTITIES.length+" entities"+(seeded?" (seeded from vendor_directory.json)":""),true);
+    if(merged||seeded){saveDirLive();}
+    if(merged)toast(merged+" local entr"+(merged>1?"ies":"y")+" merged into the shared directory");
+    return true;
+  }catch(e){
+    setDirStatus("Shared directory unavailable ("+e.message+") — changes are saved in this browser only and will not reach your other devices.",false);
+    return false;
+  }
+}
+function saveDirLive(){
+  if(!SERVED||!DIR_LOADED)return;
+  clearTimeout(DIR_TIMER);
+  setDirStatus("Saving…");
+  DIR_TIMER=setTimeout(async()=>{
+    try{
+      const r=await fetch("/api/directory",{method:"PUT",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({subs:SUBS,entities:ENTITIES})});
+      const t=await r.text();
+      if(r.ok)setDirStatus("Saved to the shared directory at "+new Date().toLocaleTimeString(),true);
+      else setDirStatus("Save refused: "+t,false);
+    }catch(e){setDirStatus("Could not save: "+e.message,false);}
+  },600);
+}
+
+/* ---------- WIRE EVERYTHING UP ---------- */
+(function SCB_PATCH_INIT(){
+  const st=document.createElement("style");st.textContent=printCSS();document.head.appendChild(st);
+  // status line + live wiring for the Directory card
+  const dirBar=document.querySelector("#dirFile")&&document.querySelector("#dirFile").parentNode;
+  if(dirBar){
+    const s=document.createElement("div");
+    s.id="dirStatus";s.className="muted";s.style.cssText="flex-basis:100%;margin-top:6px";
+    s.textContent=SERVED?"Connecting to the shared directory…":"Browser-storage mode — this page was opened from a file, so nothing is shared with your other devices.";
+    dirBar.appendChild(s);
+  }
+  const origPersist=persistDir;
+  persistDir=function(){origPersist();saveDirLive();};
+  loadDirLive();
+  const box=document.createElement("div");box.id="printView";document.body.appendChild(box);
+  window.addEventListener("beforeprint",buildPrintView);
+  const rb=document.querySelector('button[onclick="buildEmail()"]');if(rb)rb.onclick=rebuildEmail;
+  document.querySelectorAll("#docReqs input[type=checkbox]").forEach(cb=>cb.onchange=rebuildEmail);
+  const wrap=document.querySelector(".wrap");
+  ["input","change"].forEach(ev=>wrap.addEventListener(ev,ev2=>{
+    const t=ev2.target;
+    if(t.id==="emailBody"){EMAIL_TOUCHED=true;return;}
+    if(t.closest&&t.closest("#subDir,#entDir,#docReqs"))return;
+    buildEmail();
+  }));
+  const wcs=$("wcState");
+  if(wcs)wcs.addEventListener("blur",()=>{if(!wcs.value.trim())wcs.value="California";});
+  if(typeof docx==="undefined"){
+    const b=document.querySelector(".wrap");
+    if(b){const w=document.createElement("div");w.className="card";w.style.borderColor="#c2410c";
+      w.innerHTML='<b style="color:#c2410c">Word engine missing:</b> the <code>lib</code> folder next to this file could not be loaded and there is no internet connection. <b>Print / Save as PDF</b> still works and produces the same contract.';
+      b.insertBefore(w,b.firstChild);}
+  }
+  writeEmail();
+})();
+</script>
+<!-- Online layer: DocuSign send, envelope status, hosted-directory status. -->
+<script src="scb-online.js"></script>
+</body>
+</html>

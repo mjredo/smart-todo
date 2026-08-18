@@ -1,0 +1,25 @@
+# Cloudflare Pages project configuration.
+#
+# Deploying from GitHub? The dashboard settings win and this file is only used by
+# `npx wrangler pages dev` for local runs. Keep the two in step.
+
+name = "subcontract-builder"
+pages_build_output_dir = "public"
+compatibility_date = "2026-01-01"
+
+# The shared vendor directory. Create the namespace once:
+#   npx wrangler kv namespace create DIRECTORY
+# then paste the returned id below (and bind the same namespace in the dashboard
+# under Settings -> Bindings for the deployed project).
+[[kv_namespaces]]
+binding = "DIRECTORY"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[vars]
+# "demo" targets the DocuSign developer sandbox; anything else targets production.
+DS_ENV = "production"
+
+# Secrets are NOT set here. Set them in the dashboard (Settings -> Environment
+# variables -> Encrypted), or locally in a .dev.vars file which is gitignored:
+#   DS_INTEGRATION_KEY, DS_USER_ID, DS_PRIVATE_KEY
+#   ACCESS_TEAM_DOMAIN, ACCESS_AUD

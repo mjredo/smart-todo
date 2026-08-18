@@ -1,0 +1,17 @@
+{
+  "name": "subcontract-builder",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Hosted subcontract agreement builder with DocuSign send-for-signature",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "test": "node test/jwt.test.mjs && node test/send.test.mjs",
+    "test:e2e": "node test/e2e.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0",
+    "wrangler": "^3.90.0"
+  },
+  "type": "module"
+}
