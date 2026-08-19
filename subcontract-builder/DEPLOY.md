@@ -7,31 +7,12 @@ Everything here is on free tiers except DocuSign, which you already pay for.
 
 ---
 
-## Step 1 — Put the code on GitHub
+## Step 1 — Put the code on GitHub ✅ done
 
-The code is written and committed, but it needs a repository of its own — the
-integration I run under is allowed to push to repositories, not to create them, so
-this one step is yours.
+Everything is on `main` at <https://github.com/mjredo/subcontract-builder>. Cloudflare
+builds from it in step 2 and redeploys on every push after that.
 
-1. Go to <https://github.com/new>.
-2. **Repository name:** `subcontract-builder`
-3. **Private.** The contract language and the deployment guide should not be public.
-4. Do **not** tick "Add a README" — the repository must start empty.
-5. **Create repository.**
-
-Then tell me it exists and I will push everything to it. Or do it yourself — the
-finished code is on the `claude/subcontract-builder-online-yliiey` branch of
-`mjredo/smart-todo`, under `subcontract-builder/`:
-
-```bash
-git clone -b claude/subcontract-builder-online-yliiey https://github.com/mjredo/smart-todo tmp
-cd tmp/subcontract-builder
-git init -b main && git add -A && git commit -m "Subcontract Builder online"
-git remote add origin https://github.com/mjredo/subcontract-builder
-git push -u origin main
-```
-
-Cloudflare then builds from that repository and redeploys on every push.
+Start at step 2.
 
 ---
 
