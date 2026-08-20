@@ -352,10 +352,19 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .notesview:empty::before{content:attr(data-empty);color:var(--muted)}
   .notesview.big{max-height:none;min-height:52vh;cursor:default}
   .notesview a,.mnote a{color:var(--accent);text-decoration:underline;word-break:break-all}
-  .modal{position:fixed;inset:0;background:rgba(10,14,20,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:.18s}
+  /* Modals are sized to the VISUAL viewport (--vv* are kept fresh by the tracker in JS).
+     Android's soft keyboard shrinks what you can actually see WITHOUT shrinking vh, so a
+     centred 88vh card used to hang its footer — the Save button — under the keyboard with
+     nothing to scroll. Tying the overlay to the visible box keeps the card inside it. */
+  .modal{position:fixed;left:var(--vvl,0px);top:var(--vvt,0px);width:var(--vvw,100vw);height:var(--vvh,100vh);background:rgba(10,14,20,.42);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity .18s}
   .modal.open{opacity:1}
-  .modalcard{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);width:min(580px,96vw);max-height:88vh;overflow:auto;padding:18px;transform:translateY(10px) scale(.98);transition:.18s}
+  .modalcard{--mpad:18px;display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);width:min(580px,96vw);max-height:100%;overflow:auto;overscroll-behavior:contain;padding:var(--mpad);transform:translateY(10px) scale(.98);transition:transform .18s}
   .modal.open .modalcard{transform:none}
+  /* …and the footer rides the bottom edge of the card, so Save/Cancel stay on screen no
+     matter how long the note runs or how little room is left. */
+  .modalcard>.mfoot{position:sticky;bottom:calc(var(--mpad) * -1);align-self:stretch;margin-top:auto;background:var(--panel);padding:10px 0 var(--mpad);z-index:2}
+  .voicecard>.mfoot{justify-content:center}
+  @media (max-width:640px){.modal{padding:10px}}
   .mtitle{font-weight:700;font-size:17px}
   .msub{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;margin-top:-6px}
   .msub svg{width:14px;height:14px}
@@ -953,6 +962,7 @@ async function start(){
   if(prePainted)applyAndRender();                // keep the view the user is already on
   else if(!restoreView())applyAndRender();       // first paint on this device — honour any remembered view
   show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
+  restoreNoteDraft();                            // a note box the page died in comes straight back
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
@@ -2490,6 +2500,11 @@ function openVoiceNote(t){
     const cancel=el("button","btn2","Discard");
     const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,save);card.appendChild(foot);
+    // A hard-won transcript is the last thing that should die with the page — mirror it.
+    const dkey="voice:"+t.id;let draft=null;
+    const keepDraft=()=>{if(!draft)draft=bindDraft(dkey,{text:ta},{taskId:t.id,open:true});touchDraft(ta);};
+    const dropDraft=()=>{draft?draft.drop():clearDraft(dkey);draft=null;};
+    onClose(()=>{if(draft){draft.flush();saveDraft(dkey,{open:false});}});
 
     let rec=null,done=false,busy=false,reviewing=false;
     loadWhisper(p=>{if(!reviewing&&!done&&!busy)sub.textContent="Recording… (readying model "+p+"%)";}).catch(()=>{});  // warm in parallel
@@ -2500,12 +2515,12 @@ function openVoiceNote(t){
       ta.value=(txt||"").trim();
       sub.textContent=ta.value?"Review":"No speech — type your note";
       if(note)hint.textContent=note;
-      save.disabled=false;ta.focus();
+      save.disabled=false;ta.focus();keepDraft();
       const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
     };
-    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;dropDraft();
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
-    const hardFail=msg=>{if(done)return;done=true;toast(msg);close();};
+    const hardFail=msg=>{if(done)return;done=true;dropDraft();toast(msg);close();};
     const stopRec=async()=>{
       if(busy||done||reviewing)return;
       if(!rec)return hardFail("The microphone never started");
@@ -2519,7 +2534,7 @@ function openVoiceNote(t){
     };
     mic.onclick=stopRec;
     save.onclick=()=>{reviewing?commit():stopRec();};
-    cancel.onclick=()=>{done=true;if(rec)rec.cancel();close();};
+    cancel.onclick=()=>{done=true;dropDraft();if(rec)rec.cancel();close();};
     onClose(()=>{done=true;if(rec)rec.cancel();});         // Escape / backdrop close must free the mic too
     recordMic().then(h=>{if(done){h.cancel();return;}rec=h;})
       .catch(e=>hardFail(e&&e.name==="NotAllowedError"?"Microphone permission was blocked":"Couldn't start the microphone"));
@@ -2546,6 +2561,11 @@ function openVoiceNoteLive(t){
     const cancel=el("button","btn2","Discard");
     const save=el("button","btn2 primary","Save note");save.disabled=true;
     foot.append(cancel,save);card.appendChild(foot);
+    // Mirror the transcript once it's editable, so rotating the phone can't swallow it.
+    const dkey="voice:"+t.id;let draft=null;
+    const keepDraft=()=>{if(!draft)draft=bindDraft(dkey,{text:ta},{taskId:t.id,open:true});touchDraft(ta);};
+    const dropDraft=()=>{draft?draft.drop():clearDraft(dkey);draft=null;};
+    onClose(()=>{if(draft){draft.flush();saveDraft(dkey,{open:false});}});
 
     let handle=null,done=false,reviewing=false;
     const paint=(fin,int)=>{view.innerHTML="";
@@ -2556,9 +2576,10 @@ function openVoiceNoteLive(t){
       if(done||reviewing)return;reviewing=true;
       mic.style.display="none";view.style.display="none";ta.style.display="";hint.style.display="";
       ta.value=(txt||"").trim();sub.textContent=ta.value?"Review":"No speech — type your note";
-      save.disabled=false;ta.focus();const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
+      save.disabled=false;ta.focus();keepDraft();
+      const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}
     };
-    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;
+    const commit=()=>{if(done)return;const v=ta.value.trim();done=true;dropDraft();
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
     const stopRec=()=>{if(reviewing)return;sub.textContent="Finishing…";mic.classList.remove("rec");if(handle)handle.stop();else toReview(view.textContent);};
     handle=dictate({
@@ -2572,7 +2593,7 @@ function openVoiceNoteLive(t){
     });
     mic.onclick=stopRec;
     save.onclick=()=>{reviewing?commit():stopRec();};
-    cancel.onclick=()=>{done=true;if(handle)handle.abort();close();};
+    cancel.onclick=()=>{done=true;dropDraft();if(handle)handle.abort();close();};
     onClose(()=>{done=true;if(handle)handle.abort();});   // Escape / backdrop close must free the mic too
   });
 }
@@ -2585,6 +2606,7 @@ function attachMic(btn,ta){
   const append=txt=>{
     if(!txt)return;
     ta.value=(ta.value?ta.value.replace(/\s+$/,"")+" ":"")+txt;
+    touchDraft(ta);                                   // dictation must be draft-saved like typing
   };
   btn.onclick=async()=>{
     if(busy)return;                                   // mid-transcription; ignore taps
@@ -2639,21 +2661,105 @@ function prependNote(t,txt,person,loc){
   const ex=bodyText(t);
   patchTask(t,{body:{content:ex?block+"\n\n"+NOTE_DIV+"\n\n"+ex:block,contentType:"text"}});
 }
+/* ---------------- visual viewport tracker ----------------
+   Android reports the soft keyboard by shrinking the VISUAL viewport only — vh, and the
+   fixed overlay sized by it, keep the full-screen height, so a centred modal's lower half
+   (footer and Save button) sits behind the keyboard, unreachable and unscrollable. Mirror
+   the visual viewport into CSS vars that .modal is sized/positioned from. Also re-runs on
+   orientationchange, where the numbers land a beat after the event. */
+(function(){
+  const root=document.documentElement,vv=window.visualViewport;
+  const sync=()=>{
+    const h=(vv&&vv.height)||window.innerHeight, w=(vv&&vv.width)||window.innerWidth;
+    if(!(h>0)||!(w>0))return false;      // before first layout these read 0 — keep the CSS fallback
+    root.style.setProperty("--vvh",h+"px");
+    root.style.setProperty("--vvw",w+"px");
+    root.style.setProperty("--vvt",((vv&&vv.offsetTop)||0)+"px");
+    root.style.setProperty("--vvl",((vv&&vv.offsetLeft)||0)+"px");
+    return true;
+  };
+  const syncAndReveal=()=>{                    // keyboard just opened/closed: keep the caret visible
+    sync();
+    requestAnimationFrame(()=>{
+      const m=document.querySelector(".modal"),a=document.activeElement;
+      if(m&&a&&m.contains(a))try{a.scrollIntoView({block:"nearest"});}catch(_){}
+    });
+  };
+  (function settle(n){if(!sync()&&n>0)requestAnimationFrame(()=>settle(n-1));})(30);
+  window.addEventListener("load",sync);
+  if(vv){vv.addEventListener("resize",syncAndReveal);vv.addEventListener("scroll",sync);}
+  window.addEventListener("resize",sync);
+  window.addEventListener("orientationchange",()=>{sync();setTimeout(sync,250);setTimeout(sync,600);});
+})();
+
+/* ---------------- note drafts ----------------
+   Rotating an Android phone can tear the page down and re-create it (a configuration
+   change restarts the PWA's activity), which used to take whatever was half-typed in a
+   note with it. Every note box now mirrors itself into localStorage as you type. The text
+   comes back when the same box reopens, and if the page died with the box still open it
+   is reopened for you on the next launch. Saving or Cancel/Discard clears the draft;
+   dismissing with Escape or a backdrop tap deliberately keeps it. */
+const LS_DRAFTS="stNoteDrafts", DRAFT_TTL=12*3600*1000;
+function readDrafts(){
+  let d=null;try{d=JSON.parse(localStorage.getItem(LS_DRAFTS)||"{}");}catch(_){}
+  if(!d||typeof d!=="object")return {};
+  const now=Date.now();let pruned=false;
+  for(const k in d){if(!d[k]||now-(d[k].at||0)>DRAFT_TTL){delete d[k];pruned=true;}}
+  if(pruned)writeDrafts(d);
+  return d;
+}
+function writeDrafts(d){try{localStorage.setItem(LS_DRAFTS,JSON.stringify(d));}catch(_){}}
+function getDraft(key){return readDrafts()[key]||null;}
+function saveDraft(key,data){const d=readDrafts();d[key]=Object.assign({},d[key],data,{at:Date.now()});writeDrafts(d);}
+function clearDraft(key){const d=readDrafts();if(d[key]){delete d[key];writeDrafts(d);}}
+function noteDraftKey(t){return "note:"+t.id;}
+/* Mirror a set of fields into one draft record while the user types. `meta` is merged in
+   so a restored draft knows which task (and which box) it came from. */
+function bindDraft(key,fields,meta){
+  let timer=null;
+  const snap=()=>{
+    const o=Object.assign({},meta);let any=false;
+    for(const k in fields){const v=fields[k].value||"";o[k]=v;if(v.trim())any=true;}
+    if(any)saveDraft(key,o);else clearDraft(key);
+  };
+  const queue=()=>{clearTimeout(timer);timer=setTimeout(snap,350);};
+  for(const k in fields)fields[k].addEventListener("input",queue);
+  return {flush(){clearTimeout(timer);snap();},drop(){clearTimeout(timer);clearDraft(key);}};
+}
+/* Programmatic writes (dictation dropping a transcript in) don't fire `input` on their
+   own — nudge the draft binding so speech is saved the same as typing. */
+function touchDraft(node){try{node.dispatchEvent(new Event("input"));}catch(_){}}
+/* Called once the task list is on screen: if a note box was open when the page died,
+   put the user straight back in it with their words intact. */
+function restoreNoteDraft(){
+  const d=readDrafts();let best=null,bestKey=null;
+  for(const k in d){const v=d[k];
+    if(!v||!v.open||!v.taskId||!(v.text||"").trim())continue;
+    if(!best||(v.at||0)>(best.at||0)){best=v;bestKey=k;}}
+  if(!best)return;
+  const t=TASKS.find(x=>x.id===best.taskId);
+  if(!t){clearDraft(bestKey);return;}
+  // Recording can't be resumed, so a dead voice-review draft comes back as a typed note.
+  const nkey=noteDraftKey(t);
+  if(bestKey!==nkey){saveDraft(nkey,{taskId:t.id,open:true,text:best.text||"",who:best.who||""});clearDraft(bestKey);}
+  openNoteEntry(t,true);
+}
 function showModal(build){
   const wrap=el("div","modal");const card=el("div","modalcard");
   // The builder may register a teardown via the 3rd arg; it runs on EVERY close path
   // (button, backdrop click, Escape) so a live mic/recogniser can't be orphaned. See closeModal.
-  build(card,()=>closeModal(wrap),fn=>{wrap._onClose=fn;});
+  // teardowns are additive — one modal can register several (mic handle, draft flush, …)
+  build(card,()=>closeModal(wrap),fn=>{(wrap._onClose||(wrap._onClose=[])).push(fn);});
   wrap.appendChild(card);wrap.onclick=e=>{if(e.target===wrap)closeModal(wrap);};
   document.body.appendChild(wrap);requestAnimationFrame(()=>wrap.classList.add("open"));
   return wrap;
 }
 function closeModal(w){
   if(w._closed)return;w._closed=true;                     // guard: close is reachable 3 ways, run teardown once
-  if(w._onClose){try{w._onClose();}catch(_){}w._onClose=null;}
+  if(w._onClose){const fns=w._onClose;w._onClose=null;fns.forEach(f=>{try{f();}catch(_){}});}
   w.classList.remove("open");setTimeout(()=>w.remove(),180);
 }
-function openNoteEntry(t){
+function openNoteEntry(t,restored){
   showModal((card,close,onClose)=>{
     card.innerHTML=`<div class="mtitle">New note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
     // person / site (optional, with recent-values memory)
@@ -2662,6 +2768,15 @@ function openNoteEntry(t){
     card.appendChild(who);card.appendChild(dl);
     // note text
     const ta=el("textarea","mnote");ta.placeholder="Type your note…  (Ctrl/⌘+Enter to save)";card.appendChild(ta);
+    // anything left half-typed (rotation, an accidental Escape) comes back here
+    const dkey=noteDraftKey(t), prev=getDraft(dkey);
+    if(prev&&(prev.text||prev.who)){
+      ta.value=prev.text||"";who.value=prev.who||"";
+      const back=el("div","msub");back.textContent=restored?"Picked up where you left off.":"Unsaved draft restored.";
+      card.appendChild(back);
+    }
+    const draft=bindDraft(dkey,{text:ta,who},{taskId:t.id,open:true});
+    if(ta.value||who.value)draft.flush();      // a restored draft is open again straight away
     const micRow=el("div","locrow");
     const micB=el("button","notebtn micbtn");micB.innerHTML=svg(IC.mic)+"<span>Speak</span>";
     onClose(attachMic(micB,ta));micRow.appendChild(micB);card.appendChild(micRow);
@@ -2677,10 +2792,14 @@ function openNoteEntry(t){
     locRow.appendChild(locBtn);locRow.appendChild(chip);card.appendChild(locRow);
     // footer
     const foot=el("div","mfoot");
-    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    let settled=false;                            // Save or Cancel — either way the draft is done
+    const cancel=el("button","btn2","Cancel");cancel.onclick=()=>{settled=true;draft.drop();close();};
     const save=el("button","btn2 primary","Add to top");
-    save.onclick=()=>{const v=ta.value.trim();if(v){const person=who.value.trim();prependNote(t,v,person,loc);rememberPerson(person);toast("Note added");}close();};
+    save.onclick=()=>{const v=ta.value.trim();settled=true;draft.drop();
+      if(v){const person=who.value.trim();prependNote(t,v,person,loc);rememberPerson(person);toast("Note added");}close();};
     foot.appendChild(cancel);foot.appendChild(save);card.appendChild(foot);
+    // Escape / backdrop keeps the text, but the box is no longer open — don't reopen it on launch
+    onClose(()=>{if(settled)return;draft.flush();saveDraft(dkey,{open:false});});
     setTimeout(()=>ta.focus(),60);
     ta.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter")save.click();};
   });
