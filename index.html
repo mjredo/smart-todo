@@ -234,6 +234,14 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
          border-radius:12px;background:var(--panel-2);padding:12px;font-size:15px;line-height:1.55;outline:none;resize:vertical;color:var(--ink)}
   .vedit:focus{box-shadow:0 0 0 3px var(--accent-soft)}
   .vhint{font-size:12px;color:var(--muted)}
+  /* the review step after dictation: big enough to read the whole note back at a glance */
+  .vedit.big{min-height:34vh;max-height:52vh}
+  .vprev{width:100%;text-align:left;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:9px 12px}
+  .vprev>summary{cursor:pointer;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;list-style:none}
+  .vprev>summary::-webkit-details-marker{display:none}
+  .vprev>summary::before{content:"▸ "}
+  .vprev[open]>summary::before{content:"▾ "}
+  .vprevbody{margin-top:8px;max-height:26vh;overflow:auto;font-size:13.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--muted)}
   .vmodel{font-size:11px;color:var(--muted);text-align:center;opacity:.8;margin-top:2px}
   .vmodels{display:flex;flex-direction:column;gap:8px}
   .vmrow{display:flex;align-items:flex-start;gap:10px;border:1.5px solid var(--line);border-radius:11px;padding:11px 12px;text-align:left;background:var(--panel-2)}
@@ -1156,14 +1164,38 @@ function runningPill(t){                                 // live-ticking elapsed
   const s=el("span","js-elapsed",fmtClock(elapsedMsFor(t.id)));s.dataset.tid=t.id;
   p.appendChild(s);return p;
 }
-/* Notes and the due date without opening the drawer. */
+/* Notes and the due date without opening the drawer.
+   The note button is one-tap voice capture: the mic is already listening when the sheet opens,
+   and stopping drops the transcript into a big review box so you can see it heard you right
+   before saving. Reading and typing haven't gone anywhere — long-press (or right-click) the
+   button for the old view/type route. */
 function noteBtn(t){
   const has=!!bodyText(t);
   const b=el("button","rowbtn note"+(has?" on":""));
   b.innerHTML=svg(IC.note);
-  b.title=has?"Notes — view, edit, add":"Add a note";
-  b.onclick=e=>{e.stopPropagation();has?openNoteExpand(t):openNoteEntry(t);};
+  b.title=(has?"Notes — tap to dictate a new entry":"Tap to dictate a note")+"  ·  long-press to read / type";
+  holdable(b,()=>openVoiceNote(t,{quick:true}),()=>{has?openNoteExpand(t):openNoteEntry(t);});
   return b;
+}
+/* Tap vs long-press on one button, mouse and touch alike: click runs onTap, holding ~500ms
+   (or a right-click) runs onHold and swallows the click that may follow. Pointer events so
+   Android gets the same behaviour as the desktop. */
+function holdable(btn,onTap,onHold){
+  let timer=null,held=false;
+  btn.style.touchAction="manipulation";btn.style.webkitUserSelect="none";btn.style.userSelect="none";
+  const clear=()=>{if(timer){clearTimeout(timer);timer=null;}};
+  btn.addEventListener("pointerdown",e=>{
+    if(e.button&&e.button!==0)return;                 // primary button / any touch only
+    held=false;clear();
+    timer=setTimeout(()=>{timer=null;held=true;onHold();},500);
+  });
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>btn.addEventListener(ev,clear));
+  btn.addEventListener("contextmenu",e=>{e.preventDefault();e.stopPropagation();
+    if(held)return;                                    // the hold timer already opened it
+    clear();held=true;onHold();});
+  btn.onclick=e=>{e.stopPropagation();
+    if(held){held=false;return;}                       // that click belongs to the long-press
+    clear();onTap();};
 }
 function dueBtn(t){
   const d=taskDue(t),today=startOfToday();
@@ -2612,11 +2644,23 @@ async function whisperTranscribe(blob,onProgress){
   return /^[\[(]?\s*(blank_?audio|silence|music|inaudible|no speech)\s*[\])]?\.?$/i.test(txt)?"":txt;
 }
 
+/* What the task already says, folded away under the review box: the new entry goes to the
+   top of it, and it's there to glance at without leaving the capture sheet. */
+function priorNotesBlock(t){
+  const prior=bodyText(t);
+  if(!prior)return null;
+  const d=el("details","vprev");d.style.display="none";
+  const sm=el("summary",null,"Notes already on this task");
+  const bd=el("div","vprevbody");bd.textContent=prior;
+  d.append(sm,bd);return d;
+}
 /* Tap mic → speak → tap stop → Whisper transcribes → you review/edit → Save.
-   The model is warmed while you talk so transcription starts the moment you stop. */
-function openVoiceNote(t){
-  if(!voiceReady())return;
-  if(!useWhisper())return openVoiceNoteLive(t);
+   The model is warmed while you talk so transcription starts the moment you stop.
+   opts.quick marks the one-tap route off the list card, where a browser that can't dictate
+   must still land somewhere useful rather than swallowing the tap. */
+function openVoiceNote(t,opts){
+  if(!voiceReady()){if(opts&&opts.quick)openNoteEntry(t);return;}
+  if(!useWhisper())return openVoiceNoteLive(t,opts);
   showModal((card,close,onClose)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
@@ -2624,8 +2668,10 @@ function openVoiceNote(t){
     const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop and transcribe";
     const view=el("div","vtext");view.setAttribute("data-empty","Recording — tap stop when you're done.");
     const ta=el("textarea","vedit");ta.placeholder="Your transcript appears here to review and edit before saving.";ta.style.display="none";
-    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Review & edit, then Save note.";
+    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Check it heard you right — edit anything, then Save.";
     card.append(mic,sub,view,ta,hint);
+    const title=card.querySelector(".mtitle");
+    const prior=priorNotesBlock(t);if(prior)card.appendChild(prior);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
     const save=el("button","btn2 primary","Save note");save.disabled=true;
@@ -2638,10 +2684,12 @@ function openVoiceNote(t){
 
     let rec=null,done=false,busy=false,reviewing=false;
     loadWhisper(p=>{if(!reviewing&&!done&&!busy)sub.textContent="Recording… (readying model "+p+"%)";}).catch(()=>{});  // warm in parallel
-    const toReview=(txt,note)=>{                          // second phase: editable transcript, explicit Save
+    const toReview=(txt,note)=>{                          // second phase: the transcript, expanded to confirm
       if(done)return;reviewing=true;busy=false;
       mic.style.display="none";view.style.display="none";
-      ta.style.display="";hint.style.display="";
+      ta.style.display="";ta.classList.add("big");hint.style.display="";
+      if(prior)prior.style.display="";
+      title.textContent="Review note";
       ta.value=(txt||"").trim();
       sub.textContent=ta.value?"Review":"No speech — type your note";
       if(note)hint.textContent=note;
@@ -2650,7 +2698,9 @@ function openVoiceNote(t){
     };
     const commit=()=>{if(done)return;const v=ta.value.trim();done=true;dropDraft();
       if(v){prependNote(t,v);toast("Voice note added");}else toast("Nothing saved");close();};
-    const hardFail=msg=>{if(done)return;done=true;dropDraft();toast(msg);close();};
+    // The mic never came up. A tap from the list card mustn't dead-end — hand it the typed box.
+    const hardFail=msg=>{if(done)return;done=true;dropDraft();toast(msg);close();
+      if(opts&&opts.quick)setTimeout(()=>openNoteEntry(t),220);};
     const stopRec=async()=>{
       if(busy||done||reviewing)return;
       if(!rec)return hardFail("The microphone never started");
@@ -2677,7 +2727,7 @@ function openVoiceNote(t){
    "Refine with Whisper" clip) grabbed a second handle on the mic, which on Android starves the
    Web Speech recogniser so it hears nothing, and on desktop leaves the mic held after Stop. The
    recogniser owns the mic alone now. Whisper stays only as the no-SpeechRecognition fallback. */
-function openVoiceNoteLive(t){
+function openVoiceNoteLive(t,opts){
   showModal((card,close,onClose)=>{
     card.classList.add("voicecard");
     card.innerHTML=`<div class="mtitle">Voice note</div><div class="msub">${svg(IC.clock)}${nowStamp()}</div>`;
@@ -2685,8 +2735,10 @@ function openVoiceNoteLive(t){
     const mic=el("button","vmic rec");mic.innerHTML=svg(IC.stop,"fill");mic.title="Stop";
     const view=el("div","vtext");view.setAttribute("data-empty","Start talking — your words appear here.");
     const ta=el("textarea","vedit");ta.placeholder="Review and edit before saving.";ta.style.display="none";
-    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Review & edit, then Save note.";
+    const hint=el("div","vhint");hint.style.display="none";hint.textContent="Check it heard you right — edit anything, then Save.";
     card.append(mic,sub,view,ta,hint);
+    const title=card.querySelector(".mtitle");
+    const prior=priorNotesBlock(t);if(prior)card.appendChild(prior);
     const foot=el("div","mfoot");
     const cancel=el("button","btn2","Discard");
     const save=el("button","btn2 primary","Save note");save.disabled=true;
@@ -2704,7 +2756,10 @@ function openVoiceNoteLive(t){
       view.scrollTop=view.scrollHeight;};
     const toReview=txt=>{
       if(done||reviewing)return;reviewing=true;
-      mic.style.display="none";view.style.display="none";ta.style.display="";hint.style.display="";
+      mic.style.display="none";view.style.display="none";
+      ta.style.display="";ta.classList.add("big");hint.style.display="";
+      if(prior)prior.style.display="";
+      title.textContent="Review note";
       ta.value=(txt||"").trim();sub.textContent=ta.value?"Review":"No speech — type your note";
       save.disabled=false;ta.focus();keepDraft();
       const end=ta.value.length;try{ta.setSelectionRange(end,end);}catch(_){}

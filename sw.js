@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v20";   // bump: focus-list clear/multiselect, and note + due date straight from a task card
+const CACHE = "smarttodo-v21";   // bump: note button on a card goes straight to dictation, then an expanded review
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
