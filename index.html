@@ -131,6 +131,7 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
           border-radius:9px;padding:8px 9px;outline:none}
   .addbar .go{background:var(--accent);color:var(--accent-ink);border:0;border-radius:9px;padding:9px 16px;font-weight:600}
   .addbar .go:disabled{opacity:.5}
+  .addbreak{display:none}
   .searchwrap{padding:2px 22px 4px}
   .searchbar{display:flex;gap:8px;align-items:center;background:var(--panel-2);border:1px solid var(--line);
              border-radius:var(--r);padding:7px 12px}
@@ -150,7 +151,8 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   #taskList.selmode .selck{display:grid}
   #taskList.selmode .task{cursor:pointer;user-select:none}
   #taskList.selmode .task .ck,#taskList.selmode .task .star,#taskList.selmode .task .pinbtn,
-  #taskList.selmode .task .tmr,#taskList.selmode .task .freorder{pointer-events:none;opacity:.35}
+  #taskList.selmode .task .tmr,#taskList.selmode .task .freorder,
+  #taskList.selmode .task .grip,#taskList.selmode .task .rowbtn{pointer-events:none;opacity:.35}
   .task.sel{border-color:var(--accent);background:var(--accent-soft)}
   .task.sel .selck{background:var(--accent);border-color:var(--accent);color:#fff}
   .bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 22px 14px;padding:9px 12px;
@@ -194,6 +196,13 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .pinbtn{flex:0 0 auto;border:0;background:none;color:var(--muted);padding:3px;border-radius:8px;margin-top:-1px;opacity:.65}
   .pinbtn:hover{color:var(--accent);opacity:1}
   .pinbtn.on{color:var(--accent);opacity:1}
+  /* per-row quick actions: notes + due date, straight from the card */
+  .tacts{display:flex;align-items:center;gap:3px;flex:0 0 auto;margin-top:-1px}
+  .rowbtn{flex:0 0 auto;border:0;background:none;color:var(--muted);padding:3px;border-radius:8px;margin-top:-1px;opacity:.6}
+  .rowbtn:hover{color:var(--accent);opacity:1;background:var(--chip)}
+  .rowbtn.on{color:var(--accent);opacity:1}
+  .rowbtn.due.over{color:var(--red)}
+  .rowbtn.due.today{color:var(--amber)}
   /* per-row timer control (list view) */
   .tmr{flex:0 0 auto;border:0;background:none;color:var(--muted);padding:3px;border-radius:8px;margin-top:-1px}
   .tmr:hover{color:var(--accent);background:var(--chip)}
@@ -490,8 +499,28 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
     .topbar{padding:14px 16px 6px}
     .addwrap,.searchwrap,.scroll,.banner{padding-left:16px;padding-right:16px}
     .bulkbar{margin-left:16px;margin-right:16px}
+    /* Five quick actions plus (in a focus list) the reorder cluster won't always
+       fit beside the title on a phone. Let the card wrap: the controls drop to a
+       second, right-aligned line only when the title would otherwise be squeezed. */
+    .task{gap:9px;row-gap:2px;flex-wrap:wrap}
+    .task .tbody{min-width:150px}
+    .task .tacts{margin-left:auto}
+    .tacts{gap:1px}
+    .task .rowbtn,.task .star,.task .pinbtn,.task .tmr{padding:2px}
+    .task .fbtn{padding:3px}
+    .tacts .icon{width:17px;height:17px}
     .vtitle{font-size:19px}
-    .addbar select{max-width:34vw}
+    /* The list and due-date controls used to be `hide-sm` — hidden outright below
+       820px, so on a phone there was NO way to choose either without rotating into
+       landscape (and even that only worked on wide/unfolded screens). Keep them, and
+       let the add bar wrap: “+ text” on the first row, list · due · Add on the second. */
+    .addbar{flex-wrap:wrap;row-gap:8px}
+    .addbreak{display:block;flex:0 0 100%;height:0}
+    .addbar select{flex:1 1 90px;min-width:0;max-width:none;font-size:13.5px;padding:8px 6px}
+    .addbar input[type=date]{flex:0 0 auto;font-size:13.5px;padding:8px 6px}
+    /* grows into whatever the list+due row leaves over; on a very narrow phone the date
+       control pushes it to a row of its own, where full width is the friendlier target. */
+    .addbar .go{flex:1 0 auto;padding:9px 14px}
     .pop{top:auto;bottom:0;right:0;left:0;width:100%;max-width:100%;border-radius:18px 18px 0 0;max-height:86vh}
     .pop.open{transform:none}
     .hide-sm{display:none}
@@ -592,6 +621,10 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
         <svg class="icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         <span class="hide-sm">Select</span>
       </button>
+      <button class="tool" id="focusMenuBtn" style="display:none" title="Focus list actions">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+        <span class="hide-sm">List</span>
+      </button>
       <button class="tool" id="filterBtn">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v7l-4-2v-5z"/></svg>
         <span class="hide-sm">Filter</span><span class="badge-n" id="filterBadge" style="display:none">0</span>
@@ -626,8 +659,9 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <div class="addbar">
         <div class="plus"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
         <input class="addtext" id="addText" type="text" placeholder="Add a task…  (type #tags inline)">
-        <select id="addList" title="List" class="hide-sm"></select>
-        <input id="addDue" type="date" title="Due date" class="hide-sm">
+        <span class="addbreak" aria-hidden="true"></span>
+        <select id="addList" title="List"></select>
+        <input id="addDue" type="date" title="Due date">
         <button class="go" id="addBtn">Add</button>
       </div>
     </div>
@@ -641,6 +675,7 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <button class="bbtn" id="bulkComplete" title="Mark complete / reopen"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span class="hide-sm">Complete</span></button>
       <button class="bbtn" id="bulkStar" title="Star / unstar"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 21.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg><span class="hide-sm">Star</span></button>
       <button class="bbtn" id="bulkFocus" title="Add to a focus list"><svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/></svg><span class="hide-sm">Focus</span></button>
+      <button class="bbtn" id="bulkUnfocus" style="display:none" title="Remove from this focus list"><svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/><path d="M4 3.5l16 17"/></svg><span class="hide-sm">Remove</span></button>
       <button class="bbtn" id="bulkMove" title="Move to another list"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span class="hide-sm">Move</span></button>
       <button class="bbtn danger" id="bulkDelete" title="Delete"><svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v7M14 10v7"/></svg><span class="hide-sm">Delete</span></button>
     </div>
@@ -761,7 +796,8 @@ function defaultFilter(){return{lists:[],exLists:[],due:"any",dateA:"",dateB:"",
    to "All open". We persist only a {type,id}; on load restoreView() finds the matching
    sidebar button and replays its click, so every existing selection path is reused. */
 const LS_VIEW="smarttodo.view.v1";
-function saveView(type,id){try{localStorage.setItem(LS_VIEW,JSON.stringify({type,id:String(id)}));}catch(_){}}
+function clearSelection(){selMode=false;selected.clear();_selAnchor=null;}
+function saveView(type,id){clearSelection();try{localStorage.setItem(LS_VIEW,JSON.stringify({type,id:String(id)}));}catch(_){}}
 function restoreView(){
   let v=null;try{v=JSON.parse(localStorage.getItem(LS_VIEW)||"null");}catch(_){}
   if(!v||!v.type)return false;
@@ -963,6 +999,7 @@ async function start(){
   else if(!restoreView())applyAndRender();       // first paint on this device — honour any remembered view
   show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
   restoreNoteDraft();                            // a note box the page died in comes straight back
+  restoreAddDraft();                             // …and a half-typed task in the add bar
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
@@ -1005,6 +1042,9 @@ function taskDue(t){
   const d=new Date(+m[1],+m[2]-1,+m[3]);d.setHours(0,0,0,0);return d;
 }
 function parseYMD(s){if(!s)return null;const[y,m,d]=s.split("-").map(Number);if(!y||!m||!d)return null;const dt=new Date(y,m-1,d);dt.setHours(0,0,0,0);return dt;}
+function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function isoPlus(days){const d=startOfToday();d.setDate(d.getDate()+days);return ymd(d);}
+function nextDowISO(dow){const d=startOfToday();d.setDate(d.getDate()+((((dow-d.getDay())+7)%7)||7));return ymd(d);}
 function todayISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function dueNeedsDates(m){return m==="on"||m==="before"||m==="after"||m==="between";}
 function fmtDate(d){const diff=Math.round((d-startOfToday())/864e5);if(diff===0)return"Today";if(diff===1)return"Tomorrow";if(diff===-1)return"Yesterday";return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()!==new Date().getFullYear()?"numeric":undefined});}
@@ -1115,6 +1155,46 @@ function runningPill(t){                                 // live-ticking elapsed
   p.innerHTML='<span class="rdot"></span>'+svg(IC.clock);
   const s=el("span","js-elapsed",fmtClock(elapsedMsFor(t.id)));s.dataset.tid=t.id;
   p.appendChild(s);return p;
+}
+/* Notes and the due date without opening the drawer. */
+function noteBtn(t){
+  const has=!!bodyText(t);
+  const b=el("button","rowbtn note"+(has?" on":""));
+  b.innerHTML=svg(IC.note);
+  b.title=has?"Notes — view, edit, add":"Add a note";
+  b.onclick=e=>{e.stopPropagation();has?openNoteExpand(t):openNoteEntry(t);};
+  return b;
+}
+function dueBtn(t){
+  const d=taskDue(t),today=startOfToday();
+  const b=el("button","rowbtn due"+(d?" on":"")+(d&&d<today?" over":"")+(d&&d.getTime()===today.getTime()?" today":""));
+  b.innerHTML=svg(IC.cal);
+  b.title=d?"Due "+fmtDate(d)+" — tap to change":"Set a due date";
+  b.onclick=e=>{e.stopPropagation();openDueMenu(b,t);};
+  return b;
+}
+function setDue(t,iso){patchTask(t,{dueDateTime:iso?{dateTime:iso+"T00:00:00.0000000",timeZone:"UTC"}:null});}
+function openDueMenu(anchor,t){
+  const cur=taskDue(t),curISO=cur?ymd(cur):"";
+  const quick=(label,iso)=>({label,checked:iso===curISO,onClick:()=>setDue(t,iso)});
+  const items=[quick("Today",isoPlus(0)),quick("Tomorrow",isoPlus(1)),quick("Next Monday",nextDowISO(1)),
+               {label:"Pick a date…",onClick:()=>openDuePicker(t)}];
+  if(cur)items.push({label:"Remove due date",onClick:()=>setDue(t,null)});
+  popMenu(anchor,items);
+}
+function openDuePicker(t){
+  const cur=taskDue(t);
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Due date</div><div class="msub">${escHtml(t.title||"(untitled)")}</div>`;
+    const i=el("input","minput");i.type="date";i.value=cur?ymd(cur):todayISO();
+    card.appendChild(i);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const clr=el("button","btn2","Clear");clr.onclick=()=>{setDue(t,null);close();};
+    const ok=el("button","btn2 primary","Set");ok.onclick=()=>{setDue(t,i.value||null);close();};
+    foot.append(cancel,clr,ok);card.appendChild(foot);
+    setTimeout(()=>{try{i.showPicker&&i.showPicker();}catch(_){i.focus();}},80);   // native picker where the browser allows it
+  });
 }
 function timerBtn(t){
   const on=timerOn(t.id);
@@ -1234,15 +1314,17 @@ function renderTasks(rows){
     row.appendChild(ck);
     if(manual&&!IS_MOBILE)row.appendChild(gripEl());
     row.appendChild(body);
-    if(!done)row.appendChild(timerBtn(t));
-    row.appendChild(star);row.appendChild(pin);
+    const acts=el("div","tacts");
+    if(!done)acts.appendChild(timerBtn(t));
+    acts.append(noteBtn(t),dueBtn(t),star,pin);
+    row.appendChild(acts);
     if(manual&&IS_MOBILE){                               // dragging needs a mouse; give touch an equivalent
-      const ctrl=el("div","freorder");
+      const ctrl=el("div","freorder");acts.appendChild(ctrl);
       const up=el("button","fbtn");up.innerHTML=svg(IC.up);up.disabled=idx===0;up.title="Move up";
       up.onclick=e=>{e.stopPropagation();moveInOrder(t.id,-1,ids);};
       const dn=el("button","fbtn");dn.innerHTML=svg(IC.down);dn.disabled=idx===rows.length-1;dn.title="Move down";
       dn.onclick=e=>{e.stopPropagation();moveInOrder(t.id,1,ids);};
-      ctrl.append(up,dn);row.appendChild(ctrl);
+      ctrl.append(up,dn);
     }
     row.onclick=e=>{if(Date.now()-_dragEndAt<250)return;
       if(selMode||e.ctrlKey||e.metaKey||e.shiftKey){e.preventDefault();rowSelect(t,e);return;}
@@ -1315,7 +1397,8 @@ function renderFilterControls(){
   const fl=$("#fLists");fl.innerHTML="";
   for(const L of LISTS){const c=el("button","chip",L.displayName);c.dataset.list=L.id;c.dataset.name=L.displayName;c.onclick=()=>cycleList(L.id);fl.appendChild(c);}
   renderTagChips();
-  const sel=$("#addList");sel.innerHTML="";for(const L of LISTS){const o=el("option",null,L.displayName);o.value=L.id;sel.appendChild(o);}
+  const sel=$("#addList"),keep=sel.value;sel.innerHTML="";for(const L of LISTS){const o=el("option",null,L.displayName);o.value=L.id;sel.appendChild(o);}
+  if(keep)selectIfPresent(sel,keep);            // a refresh rebuilds these options — don't throw away the pick
 }
 function renderTagChips(){
   const ft=$("#fTags");ft.innerHTML="";
@@ -1550,6 +1633,29 @@ function deleteFocusList(id){
   FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();renderFocusNav();updateNavCounts();
   if(activeFocusId===id){focusView=false;activeFocusId=null;filter=defaultFilter();starOnly=false;setTitle("All open");applyAndRender();}
 }
+function clearFocusList(id){
+  const l=focusById(id);if(!l)return;
+  const n=l.taskIds.length;
+  if(!n){toast("That list is already empty");return;}
+  if(!confirm(`Remove all ${n} task${n>1?"s":""} from “${l.name}”?
+
+The tasks themselves are not deleted.`))return;
+  l.taskIds=[];saveFocus();renderFocusNav();updateNavCounts();
+  if(focusView&&activeFocusId===id){clearSelection();renderFocusView();}else applyAndRender();
+  toast(`Cleared “${l.name}”`);
+}
+function removeSelFromFocus(){
+  const l=focusById(activeFocusId);if(!l||!selected.size)return;
+  const before=l.taskIds.length;
+  l.taskIds=l.taskIds.filter(tid=>!selected.has(tid));
+  const gone=before-l.taskIds.length;
+  saveFocus();renderFocusNav();updateNavCounts();
+  toast(`Removed ${gone} from “${l.name}”`);exitSelect();
+}
+function selectAllInFocus(){
+  focusListTasks(activeFocusId).forEach(t=>selected.add(t.id));
+  selMode=true;_selAnchor=null;applyAndRender();
+}
 function moveInFocus(id,taskId,dir){         // works on what's on screen, so stale ids can't swallow a move
   const l=focusById(id);if(!l)return;
   const ids=focusListTasks(id).map(t=>t.id),i=ids.indexOf(taskId),j=i+dir;
@@ -1557,7 +1663,7 @@ function moveInFocus(id,taskId,dir){         // works on what's on screen, so st
   [ids[i],ids[j]]=[ids[j],ids[i]];
   resequence(l.taskIds,ids);saveFocus();renderFocusView();
 }
-function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;saveView("focus",id);const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();closeSide();}
+function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;saveView("focus",id);const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();updateBulkBar();closeSide();}
 
 function renderFocusNav(){
   const box=$("#focusNav");if(!box)return;box.innerHTML="";
@@ -1568,8 +1674,8 @@ function renderFocusNav(){
     btn.innerHTML=`<span class="ic">${svg(IC.focus)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=l.name;
     btn.onclick=()=>enterFocus(l.id);
-    const x=el("button","row-x");x.innerHTML=svg(IC.x);x.title="Rename / delete";
-    x.onclick=e=>{e.stopPropagation();focusListMenu(l);};
+    const x=el("button","row-x");x.innerHTML=svg(IC.x);x.title="Rename / clear / delete";
+    x.onclick=e=>{e.stopPropagation();focusListMenu(l,x);};
     rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
   }
   updateFocusCounts();
@@ -1577,11 +1683,24 @@ function renderFocusNav(){
 function updateFocusCounts(){
   $$("#focusNav .navbtn").forEach(b=>{const l=focusById(b.dataset.focus);const n=l?l.taskIds.filter(id=>TASKS.find(t=>t.id===id)).length:0;b.querySelector(".ct").textContent=n||"";});
 }
-function focusListMenu(l){
-  const name=prompt(`Rename focus list, or type "delete" to remove it (your tasks are NOT deleted):`,l.name);
-  if(name===null)return;
-  if(name.trim().toLowerCase()==="delete"){if(confirm(`Delete focus list “${l.name}”?`))deleteFocusList(l.id);return;}
-  if(name.trim()&&name.trim()!==l.name)renameFocusList(l.id,name.trim());
+function focusMenuItems(l){
+  return [
+    {label:"Rename…",onClick:()=>{const n=prompt("Rename focus list:",l.name);if(n&&n.trim()&&n.trim()!==l.name)renameFocusList(l.id,n.trim());}},
+    {label:"Clear all tasks",onClick:()=>clearFocusList(l.id)},
+    {label:"Delete list",onClick:()=>{if(confirm(`Delete focus list “${l.name}”?
+
+Your tasks are NOT deleted.`))deleteFocusList(l.id);}}
+  ];
+}
+function focusListMenu(l,anchor){popMenu(anchor,focusMenuItems(l));}
+function focusViewMenu(anchor){                          // the "List" button while a focus list is open
+  const l=focusById(activeFocusId);if(!l)return;
+  const items=[];
+  if(l.taskIds.length){
+    items.push({label:selMode?"Cancel selection":"Select tasks…",onClick:()=>setSelectMode(!selMode)});
+    items.push({label:"Select all",onClick:selectAllInFocus});
+  }
+  popMenu(anchor,items.concat(focusMenuItems(l)));
 }
 function renderFocusView(){
   if(_focusDrag)return;                                 // a drag owns the DOM right now — a background sync must not rebuild it mid-drag
@@ -1591,7 +1710,7 @@ function renderFocusView(){
   const l=focusById(activeFocusId);
   const rows=focusListTasks(activeFocusId);
   $("#count").textContent=rows.length;
-  const box=$("#taskList");box.innerHTML="";
+  const box=$("#taskList");box.innerHTML="";box.classList.toggle("selmode",selMode);
   if(!rows.length){
     box.innerHTML=`<div class="empty">${svg(IC.focus)}<div>“${l?escHtml(l.name):"Focus"}” is empty.</div>
       <div style="font-size:12.5px;max-width:360px">Pin a task with the ${svg(IC.pin)} button and choose this list, or open a task and tap it under <b>Focus lists</b>. Focus lists are private working lists — synced across your devices, never changing your real To Do lists.</div></div>`;
@@ -1599,9 +1718,11 @@ function renderFocusView(){
   }
   const today=startOfToday();
   const ids=rows.map(t=>t.id);
+  _selIds=ids;                                            // on-screen order, for shift-range selection
   rows.forEach((t,idx)=>{
-    const row=el("div","task"+(t.status==="completed"?" done":"")+(t._pending?" _pend":""));
+    const row=el("div","task"+(t.status==="completed"?" done":"")+(t._pending?" _pend":"")+(selected.has(t.id)?" sel":""));
     row.dataset.id=t.id;
+    const selck=el("span","selck");selck.innerHTML=svg(IC.check);row.appendChild(selck);
     /* a focus list is hand-ordered by definition, so dragging is always on here —
        it reorders this list's own taskIds, never the global "My order". Wired below
        from the grip via pointer events so it works on touch (Android) and mouse alike. */
@@ -1625,9 +1746,13 @@ function renderFocusView(){
     row.appendChild(ck);
     const grip=gripEl();wireGripDrag(grip,row,commitOrder);row.appendChild(grip);
     row.appendChild(body);
-    if(t.status!=="completed")row.appendChild(timerBtn(t));
-    row.appendChild(ctrl);
-    row.onclick=()=>{if(Date.now()-_dragEndAt<250)return;openDetail(t);};
+    const acts=el("div","tacts");
+    if(t.status!=="completed")acts.appendChild(timerBtn(t));
+    acts.append(noteBtn(t),dueBtn(t));
+    acts.appendChild(ctrl);row.appendChild(acts);
+    row.onclick=e=>{if(Date.now()-_dragEndAt<250)return;
+      if(selMode||e.ctrlKey||e.metaKey||e.shiftKey){e.preventDefault();rowSelect(t,e);return;}
+      openDetail(t);};
     box.appendChild(row);
   });
   updateNavCounts();
@@ -1898,7 +2023,7 @@ function addTask(){
   if(due)body.dueDateTime={dateTime:due+"T00:00:00.0000000",timeZone:"UTC"};
   queueOp({type:"add",tempId:newTmpId(),listId,body});
   rebuildTags();renderTagChips();
-  $("#addText").value="";$("#addDue").value="";applyAndRender();
+  $("#addText").value="";$("#addDue").value="";clearDraft(ADD_DRAFT);applyAndRender();
   const L=LISTS.find(l=>l.id===listId);toast((isOffline()?"Saved offline · ":"Added to ")+(L?L.displayName:""));
   $("#addText").focus();
 }
@@ -2045,8 +2170,13 @@ function updateBulkBar(){
   const bar=$("#bulkBar");if(!bar)return;
   const sb=$("#selectBtn");if(sb)sb.classList.toggle("on",selMode);
   const n=selected.size;
-  bar.style.display=(selMode&&n&&!focusView)?"flex":"none";
+  bar.style.display=(selMode&&n)?"flex":"none";
   const c=$("#bulkCount");if(c)c.textContent=n;
+  /* inside a focus list the useful bulk action is "take these off the list",
+     not re-pinning or moving between real To Do lists */
+  const show=(sel,on)=>{const b=$(sel);if(b)b.style.display=on?"":"none";};
+  show("#bulkUnfocus",focusView);show("#bulkFocus",!focusView);show("#bulkMove",!focusView);
+  show("#focusMenuBtn",focusView);
 }
 function bulkComplete(){
   const ts=selectedTasks();if(!ts.length)return;
@@ -2744,6 +2874,46 @@ function restoreNoteDraft(){
   if(bestKey!==nkey){saveDraft(nkey,{taskId:t.id,open:true,text:best.text||"",who:best.who||""});clearDraft(bestKey);}
   openNoteEntry(t,true);
 }
+/* ---------------- add-bar draft ----------------
+   Same failure mode as the note boxes above: rotating an Android phone can restart the
+   PWA's activity, which reloads the page and used to take a half-typed task with it —
+   painfully so, because rotating was the only way to reach the list/due controls at all.
+   Mirror the add bar (title, due date, chosen list) into the same draft store as you
+   type, and put it back on the next paint. Adding the task clears it. */
+const ADD_DRAFT="addbar";
+function selectIfPresent(sel,v){for(const o of sel.options)if(o.value===v){sel.value=v;return true;}return false;}
+function bindAddDraft(){
+  const txt=$("#addText"),due=$("#addDue"),lst=$("#addList");
+  const snap=()=>{
+    /* Gated on the title alone: a date/list with nothing typed isn't worth keeping, and
+       a stale one silently re-attaching to tomorrow's task would be worse than losing it. */
+    const text=txt.value;
+    if(text.trim())saveDraft(ADD_DRAFT,{text,due:due.value,list:lst.value});
+    else clearDraft(ADD_DRAFT);
+  };
+  let timer=null;const queue=()=>{clearTimeout(timer);timer=setTimeout(snap,250);};
+  txt.addEventListener("input",queue);
+  due.addEventListener("change",snap);
+  lst.addEventListener("change",snap);
+  /* The teardown can beat a 250ms debounce, so write through immediately on every signal
+     Android gives us before the activity goes away. `pagehide` is the reliable one for a
+     bfcache/config-change teardown; `freeze` and a hidden tab cover the rest. */
+  const flush=()=>{clearTimeout(timer);snap();};
+  window.addEventListener("pagehide",flush);
+  window.addEventListener("blur",flush);
+  document.addEventListener("freeze",flush);
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")flush();});
+}
+/* Called once the lists (and so the #addList options) exist. */
+function restoreAddDraft(){
+  const d=getDraft(ADD_DRAFT);if(!d)return;
+  const txt=$("#addText");
+  if(d.due)$("#addDue").value=d.due;
+  if(d.list)selectIfPresent($("#addList"),d.list);
+  if(!(d.text||"").trim())return;
+  txt.value=d.text;
+  toast("Restored the task you were typing");
+}
 function showModal(build){
   const wrap=el("div","modal");const card=el("div","modalcard");
   // The builder may register a teardown via the 3rd arg; it runs on EVERY close path
@@ -2870,6 +3040,7 @@ function wireUi(){
   $("#filterBtn").onclick=()=>$("#filterPop").classList.contains("open")?closePop():openPop();
   $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){if(!e.reauth)error(e.offline||isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
+  bindAddDraft();
   $("#newListBtn").onclick=newList;
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
   $("#voiceModelBtn").onclick=()=>{closeSide();openVoiceSettings();};
@@ -2880,6 +3051,8 @@ function wireUi(){
   $("#bulkFocus").onclick=e=>bulkFocus(e.currentTarget);
   $("#bulkMove").onclick=e=>bulkMove(e.currentTarget);
   $("#bulkDelete").onclick=bulkDelete;
+  $("#bulkUnfocus").onclick=removeSelFromFocus;
+  $("#focusMenuBtn").onclick=()=>focusViewMenu($("#focusMenuBtn"));
   $("#newFocusBtn").onclick=()=>{const n=prompt("New focus list name:","Morning");if(n&&n.trim())enterFocus(newFocusList(n.trim()).id);};
   $("#timerChip").onclick=e=>{const ids=Object.keys(activeTimers);if(!ids.length)return;
     if($(".timerpop")){closeMenu();return;}              // toggle closed if already open
