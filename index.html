@@ -218,6 +218,12 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .task.dragover-b{box-shadow:0 3px 0 -1px var(--accent),var(--shadow-sm)}
   .grip{flex:0 0 auto;color:var(--muted);opacity:.5;padding:3px;margin-top:-1px;cursor:grab}
   .grip:hover{opacity:1;color:var(--accent)}
+  /* sliding-tile reorder: the row is lifted out of the flow and a gap holds its place */
+  .task.tile{cursor:grabbing;border-color:var(--accent);background:var(--panel);opacity:1;
+             box-shadow:var(--shadow-lg);transform:scale(1.015)}
+  .tilegap{border:1.5px dashed var(--accent);border-radius:var(--r);background:var(--accent-soft);
+           opacity:.55;box-sizing:border-box;flex:0 0 auto}
+  body.tiledrag{cursor:grabbing;user-select:none;-webkit-user-select:none}
 
   /* voice capture sheet */
   .voicecard{align-items:center;text-align:center;gap:14px;width:min(430px,94vw)}
@@ -1269,55 +1275,149 @@ function wireDrag(row,t,commit){
     box.insertBefore(src,after?row.nextSibling:row);
     commit([...box.children].map(c=>c.dataset.id).filter(Boolean));};
 }
-function gripEl(){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder";return g;}
-/* Pointer-based reorder driven from the grip handle. Native HTML5 drag events
-   (used by wireDrag) never fire on touchscreens, so Android couldn't drag at all;
-   Pointer Events unify mouse + touch, so this works on both. The row is moved live
-   among its siblings and the scroller auto-pans near its edges. */
-function wireGripDrag(grip,row,commit){
-  grip.style.touchAction="none";                       // let us drive the drag instead of scrolling
-  grip.addEventListener("pointerdown",e=>{
-    if(e.button&&e.button!==0)return;                   // primary button / any touch only
-    e.preventDefault();e.stopPropagation();
-    const box=$("#taskList"),scroller=row.closest(".scroll")||box;
-    let moved=false,lastY=e.clientY,raf=0,done=false;
-    _focusDrag=true;                                    // freeze background re-renders so the row can't be torn out mid-drag
-    row.classList.add("dragging");
-    try{grip.setPointerCapture(e.pointerId);}catch(_){}
-    const place=y=>{                                    // insert row before the first sibling whose midpoint is below y
-      if(row.parentElement!==box)return;                // safety: never re-insert a detached row (that duplicated ids)
-      const sibs=[...box.children].filter(c=>c!==row&&c.classList&&c.classList.contains("task"));
-      let before=null;
-      for(const s of sibs){const r=s.getBoundingClientRect();if(y<r.top+r.height/2){before=s;break;}}
-      if(before){if(row.nextSibling!==before)box.insertBefore(row,before);}
-      else if(box.lastElementChild!==row)box.appendChild(row);
-    };
-    const finish=save=>{                                // single teardown path — runs exactly once
-      if(done)return;done=true;
-      cancelAnimationFrame(raf);
-      grip.removeEventListener("pointermove",onMove);
-      grip.removeEventListener("pointerup",onUp);
-      grip.removeEventListener("pointercancel",onUp);
-      row.classList.remove("dragging");_dragEndAt=Date.now();_focusDrag=false;
-      if(save&&moved&&row.parentElement===box){
-        const seen=new Set();                           // dedupe defends the stored order even if the DOM ever repeats an id
-        commit([...box.children].map(c=>c.dataset.id).filter(id=>id&&!seen.has(id)&&seen.add(id)));
-      }else if(save&&moved){commit(null);}              // row got detached: re-render from unchanged data, don't persist a bad order
-    };
-    const tick=()=>{                                    // auto-scroll while the finger rests near an edge
-      if(row.parentElement!==box){finish(true);return;} // a re-render slipped through: bail cleanly
-      const r=scroller.getBoundingClientRect(),m=48;
-      if(lastY<r.top+m)scroller.scrollTop-=Math.min(16,(r.top+m-lastY)/2);
-      else if(lastY>r.bottom-m)scroller.scrollTop+=Math.min(16,(lastY-(r.bottom-m))/2);
-      place(lastY);raf=requestAnimationFrame(tick);
-    };
-    const onMove=ev=>{moved=true;lastY=ev.clientY;place(lastY);};
-    const onUp=()=>finish(true);
-    grip.addEventListener("pointermove",onMove);
-    grip.addEventListener("pointerup",onUp);
-    grip.addEventListener("pointercancel",onUp);
-    raf=requestAnimationFrame(tick);
+function gripEl(){const g=el("span","grip");g.innerHTML=svg(IC.grip);g.title="Drag to reorder — or press and hold the row";return g;}
+/* ---------------- sliding-tile reorder ----------------------------------------------
+   The first version moved the dragged row itself between its siblings on every pointer
+   move. Two things went wrong with that: re-inserting a node in the DOM RELEASES its
+   pointer capture, so the browser stopped delivering moves after the very first swap —
+   you had to lift and press again for each single step — and the row jumping under the
+   finger made the list feel like it was fighting back.
+
+   Now the row is lifted out of the flow entirely (fixed position, following the pointer)
+   and a gap the same height holds its place. Only the GAP moves between siblings, the
+   rows it displaces slide to their new spots (FLIP: measure, move, animate the delta),
+   and the pointer stream comes from window listeners that no DOM change can interrupt.
+   Nothing about the drag depends on capture, so one press reorders as far as you like.
+
+   Started by dragging the grip (mouse or touch) or by pressing and holding the row on
+   a touchscreen, where the grip is a small target. */
+let _tileDrag=null;
+function wireReorder(row,grip,commit){
+  if(grip){
+    grip.style.touchAction="none";                      // the grip drives the drag, never a scroll
+    grip.addEventListener("pointerdown",e=>{
+      if(e.button&&e.button!==0)return;
+      e.preventDefault();e.stopPropagation();
+      startTileDrag(row,e,commit);});
+  }
+  /* Press and hold anywhere on the row (touch/pen) to lift it. A mouse has the grip,
+     which starts instantly — no reason to make it wait.
+     The waiting timer is armed and disarmed from WINDOW listeners, not the row's: a finger
+     that drifts off the row before letting go would otherwise leave the timer running and
+     lift a tile out from under nothing, seconds after the touch ended. */
+  let hold=null,sx=0,sy=0,pid=null;
+  const disarm=()=>{
+    if(hold){clearTimeout(hold);hold=null;}
+    window.removeEventListener("pointermove",holdMove,true);
+    window.removeEventListener("pointerup",disarm,true);
+    window.removeEventListener("pointercancel",disarm,true);
+  };
+  const holdMove=e=>{                                 // a scroll — or any real movement — means they meant to scroll
+    if(Math.abs(e.clientX-sx)>12||Math.abs(e.clientY-sy)>12)disarm();};
+  row.addEventListener("pointerdown",e=>{
+    if(_tileDrag||e.pointerType==="mouse")return;
+    if(e.target.closest&&e.target.closest("button,a,input,textarea,.grip,.selck"))return;
+    disarm();
+    sx=e.clientX;sy=e.clientY;pid=e.pointerId;
+    window.addEventListener("pointermove",holdMove,true);
+    window.addEventListener("pointerup",disarm,true);
+    window.addEventListener("pointercancel",disarm,true);
+    hold=setTimeout(()=>{
+      disarm();
+      try{navigator.vibrate&&navigator.vibrate(12);}catch(_){}   // a nudge so you know it's floating
+      startTileDrag(row,{clientX:sx,clientY:sy,pointerId:pid},commit);},400);
   });
+}
+function startTileDrag(row,e,commit){
+  const box=$("#taskList");
+  if(_tileDrag||!box||row.parentElement!==box)return;
+  const scroller=row.closest(".scroll")||box;
+  const r=row.getBoundingClientRect(), css0=row.getAttribute("style")||"";
+  const gapY=e.clientY-r.top;
+  const ph=el("div","tilegap");ph.style.height=r.height+"px";
+  box.insertBefore(ph,row);
+  /* Out of the flow and onto the body: the tile is now positioned in viewport
+     coordinates, so scrolling the list underneath it doesn't drag it along.
+     transition:none matters — .task animates every property by default, which would
+     otherwise put the tile ~140ms behind the finger. */
+  document.body.appendChild(row);
+  row.classList.add("tile");
+  row.setAttribute("style",css0+";position:fixed;margin:0;z-index:70;pointer-events:none;transition:none;"+
+    "left:"+r.left+"px;top:"+r.top+"px;width:"+r.width+"px");
+  document.body.classList.add("tiledrag");
+  const pid=e.pointerId;
+  let lastY=e.clientY,raf=0,moved=false,done=false;
+  _tileDrag=row;_focusDrag=true;                        // freeze background re-renders for the duration
+  const block=ev=>ev.preventDefault();                  // non-passive: stops the page scrolling under a held finger
+  document.addEventListener("touchmove",block,{passive:false});
+
+  const sibs=()=>[...box.children].filter(c=>c!==ph&&c.classList&&c.classList.contains("task"));
+  const placeGap=()=>{
+    /* The TILE's midpoint picks the slot, not the fingertip: you can grab a row anywhere
+       along its height, and the gap has to open where the tile is hovering, not a row away. */
+    const t=row.getBoundingClientRect(),mid=t.top+t.height/2;
+    const list=sibs();
+    let before=null;
+    for(const sb of list){const b=sb.getBoundingClientRect();if(mid<b.top+b.height/2){before=sb;break;}}
+    if(before?before===ph.nextElementSibling:box.lastElementChild===ph)return;   // already in that slot
+    const tops=list.map(sb=>sb.getBoundingClientRect().top);
+    box.insertBefore(ph,before);
+    list.forEach((sb,i)=>{                              // FLIP: slide each displaced row from where it was
+      const dy=tops[i]-sb.getBoundingClientRect().top;
+      if(Math.abs(dy)<0.5)return;
+      try{if(sb._flip)sb._flip.cancel();
+        sb._flip=sb.animate([{transform:"translateY("+dy+"px)"},{transform:"none"}],
+                            {duration:170,easing:"cubic-bezier(.2,.7,.3,1)"});}catch(_){}
+    });
+  };
+  const onMove=ev=>{
+    if(pid!=null&&ev.pointerId!=null&&ev.pointerId!==pid)return;
+    moved=true;lastY=ev.clientY;
+    row.style.top=(ev.clientY-gapY)+"px";
+    placeGap();
+  };
+  const tick=()=>{                                      // auto-pan while the pointer rests near an edge
+    const b=scroller.getBoundingClientRect(),m=54;
+    let d=0;
+    if(lastY<b.top+m)d=-Math.min(18,(b.top+m-lastY)/2);
+    else if(lastY>b.bottom-m)d=Math.min(18,(lastY-(b.bottom-m))/2);
+    if(d){scroller.scrollTop+=d;placeGap();}
+    raf=requestAnimationFrame(tick);
+  };
+  const land=()=>{
+    /* If something rebuilt the list under us (a view switch — background syncs are frozen),
+       the gap is no longer in it. Then the floating row is a stale node: drop it and leave
+       the stored order alone rather than writing an order built from a list that's gone. */
+    const intact=ph.parentElement===box&&document.body.contains(box);
+    if(intact)box.insertBefore(row,ph);else row.remove();
+    ph.remove();
+    row.setAttribute("style",css0);row.classList.remove("tile");
+    document.body.classList.remove("tiledrag");
+    _tileDrag=null;_focusDrag=false;_dragEndAt=Date.now();
+    if(intact&&moved){
+      const seen=new Set();                             // dedupe: a repeated id must never reach the stored order
+      commit([...box.children].map(c=>c.dataset.id).filter(id=>id&&!seen.has(id)&&seen.add(id)));
+    }
+  };
+  const finish=()=>{
+    if(done)return;done=true;
+    cancelAnimationFrame(raf);
+    window.removeEventListener("pointermove",onMove,true);
+    window.removeEventListener("pointerup",finish,true);
+    window.removeEventListener("pointercancel",finish,true);
+    document.removeEventListener("touchmove",block);
+    if(ph.parentElement!==box)return land();            // nothing to drop into — clean up now
+    const slot=ph.getBoundingClientRect();              // drop it into the gap it opened
+    row.style.transition="top .16s cubic-bezier(.2,.7,.3,1),left .16s cubic-bezier(.2,.7,.3,1),transform .16s";
+    row.style.top=slot.top+"px";row.style.left=slot.left+"px";row.style.transform="none";
+    setTimeout(land,170);
+  };
+  /* window + capture: a DOM change can't interrupt this stream the way pointer capture
+     on the moving row could, so the drag runs until the pointer actually goes up. */
+  window.addEventListener("pointermove",onMove,true);
+  window.addEventListener("pointerup",finish,true);
+  window.addEventListener("pointercancel",finish,true);
+  raf=requestAnimationFrame(tick);
 }
 function renderTasks(rows){
   const box=$("#taskList");box.innerHTML="";box.classList.toggle("selmode",selMode);
@@ -1785,7 +1885,7 @@ function renderFocusView(){
     const rm=el("button","fbtn");rm.innerHTML=svg(IC.pin,"fill");rm.title="Add to / remove from focus lists";rm.style.color="var(--accent)";rm.onclick=e=>{e.stopPropagation();openFocusMenu(rm,t);};
     ctrl.appendChild(up);ctrl.appendChild(dn);ctrl.appendChild(rm);
     row.appendChild(ck);
-    const grip=gripEl();wireGripDrag(grip,row,commitOrder);row.appendChild(grip);
+    const grip=gripEl();wireReorder(row,grip,commitOrder);row.appendChild(grip);
     row.appendChild(body);
     const acts=el("div","tacts");
     if(t.status!=="completed")acts.appendChild(timerBtn(t));
@@ -3176,7 +3276,7 @@ boot();
 /* Which copy of the app is actually running. A stale service-worker/browser copy looks
    exactly like a change that never shipped, so the build is on screen (sidebar, under
    Maintenance) and in the console to settle that question in one glance. */
-const APP_BUILD="v21 — note button dictates first";
+const APP_BUILD="v22 — sliding-tile reorder";
 try{$("#buildTag").textContent="Build "+APP_BUILD;console.log("Smart To Do build",APP_BUILD);}catch(_){}
 if("serviceWorker" in navigator)window.addEventListener("load",()=>{
   const had=!!navigator.serviceWorker.controller;      // false on the very first install — not an update

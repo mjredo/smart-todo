@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v21";   // bump: note button on a card goes straight to dictation, then an expanded review
+const CACHE = "smarttodo-v22";   // bump: sliding-tile reorder in focus lists
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
