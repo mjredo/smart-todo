@@ -115,7 +115,14 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .tool.iconly{padding:8px}
   .tool .badge-n{background:var(--accent);color:var(--accent-ink);font-size:11px;border-radius:999px;padding:0 6px;min-width:17px;text-align:center}
   .tool select{border:0;background:none;outline:none;cursor:pointer}
-  .menubtn{display:none}
+  .menubtn{display:inline-flex}
+  /* Desktop: the hamburger collapses the sidebar so the list / task gets the whole
+     screen. Scoped to wide layouts — on a phone the sidebar is a slide-in drawer and
+     the same button opens it instead. */
+  @media (min-width:821px){
+    .app.sbhide{grid-template-columns:1fr}
+    .app.sbhide .side{display:none}
+  }
   .synchdr{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;white-space:nowrap}
   .synchdr svg{width:14px;height:14px;stroke-width:2}
   .synchdr.off{color:var(--amber)}
@@ -722,6 +729,11 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
     <div class="taghint">Tap a list: <b>include</b> → <s>exclude</s> → clear</div>
   </div>
   <div class="fgroup">
+    <label>Focus lists</label>
+    <div class="chips" id="fFocus"></div>
+    <div class="taghint">Tap a focus list: <b>include</b> → <s>exclude</s> → clear</div>
+  </div>
+  <div class="fgroup">
     <label>Due</label>
     <select id="fDue">
       <option value="any">Any time</option>
@@ -806,7 +818,7 @@ let selMode=false, selected=new Set(), _selIds=[], _selAnchor=null;   // multise
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
-function defaultFilter(){return{lists:[],exLists:[],due:"any",dateA:"",dateB:"",status:"open",text:"",tags:[],exTags:[]};}
+function defaultFilter(){return{lists:[],exLists:[],focus:[],exFocus:[],due:"any",dateA:"",dateB:"",status:"open",text:"",tags:[],exTags:[]};}
 /* Remember which view (built-in, real list, saved smart list, or focus list) is
    open so a refresh — routine on a mobile PWA — reopens it instead of snapping back
    to "All open". We persist only a {type,id}; on load restoreView() finds the matching
@@ -1116,6 +1128,11 @@ function matches(t){
   if(filter.status==="completed"&&!done)return false;
   if(filter.lists.length&&!filter.lists.includes(t._listId))return false;
   if(filter.exLists&&filter.exLists.includes(t._listId))return false;   // NOT: hide tasks in an excluded list
+  /* Focus-list facet. Ids of lists that no longer exist are ignored (a saved smart
+     list may outlive the focus list it pointed at) so a stale id can't blank the view. */
+  const incF=(filter.focus||[]).filter(focusById);
+  if(incF.length&&!incF.some(id=>inFocus(t,id)))return false;          // include: in ANY chosen focus list
+  if((filter.exFocus||[]).some(id=>inFocus(t,id)))return false;        // NOT: hide tasks pinned to an excluded focus list
   if(filter.due!=="any"){
     const d=taskDue(t),today=startOfToday();
     if(filter.due==="none"){if(d)return false;}
@@ -1152,7 +1169,7 @@ const SORTS={
   manual:(a,b)=>(rankOf(a)-rankOf(b))||SORTS.due(a,b)
 };
 function compTime(t){const c=t.completedDateTime&&t.completedDateTime.dateTime;return c?Date.parse(c):0;}
-function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.exLists&&filter.exLists.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.exTags&&filter.exTags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
+function activeFacetCount(){let n=0;if(filter.lists.length)n++;if(filter.exLists&&filter.exLists.length)n++;if(filter.focus&&filter.focus.length)n++;if(filter.exFocus&&filter.exFocus.length)n++;if(filter.due!=="any")n++;if(filter.tags.length)n++;if(filter.exTags&&filter.exTags.length)n++;if(filter.status!=="open")n++;if(filter.text)n++;return n;}
 function applyAndRender(){
   if(focusView){renderFocusView();updateBulkBar();return;}
   const rows=TASKS.filter(matches);
@@ -1537,7 +1554,7 @@ function reflectActiveNav(){$$(".navbtn").forEach(b=>b.classList.remove("active"
 function renderFilterControls(){
   const fl=$("#fLists");fl.innerHTML="";
   for(const L of LISTS){const c=el("button","chip",L.displayName);c.dataset.list=L.id;c.dataset.name=L.displayName;c.onclick=()=>cycleList(L.id);fl.appendChild(c);}
-  renderTagChips();
+  renderTagChips();renderFocusChips();
   const sel=$("#addList"),keep=sel.value;sel.innerHTML="";for(const L of LISTS){const o=el("option",null,L.displayName);o.value=L.id;sel.appendChild(o);}
   if(keep)selectIfPresent(sel,keep);            // a refresh rebuilds these options — don't throw away the pick
 }
@@ -1545,6 +1562,19 @@ function renderTagChips(){
   const ft=$("#fTags");ft.innerHTML="";
   if(!TAGS.length){ft.innerHTML='<span style="color:var(--muted);font-size:12.5px">No #hashtags in your task titles yet.</span>';return;}
   for(const tg of TAGS){const c=el("button","chip","#"+tg);c.dataset.tag=tg;c.onclick=()=>cycleTag(tg);ft.appendChild(c);}
+}
+/* Focus-list chips in the filter pop. Re-rendered whenever FOCUS changes (renderFocusNav
+   calls this) so a new / renamed / deleted list shows up without a refresh. */
+function renderFocusChips(){
+  const ff=$("#fFocus");if(!ff)return;ff.innerHTML="";
+  if(!FOCUS.lists.length){ff.innerHTML='<span style="color:var(--muted);font-size:12.5px">No focus lists yet.</span>';return;}
+  for(const l of FOCUS.lists){const c=el("button","chip",l.name);c.dataset.focusId=l.id;c.dataset.name=l.name;c.onclick=()=>cycleFocus(l.id);ff.appendChild(c);}
+  syncFocusChips();
+}
+function syncFocusChips(){
+  const inc=filter.focus||[],exc=filter.exFocus||[];
+  $$("#fFocus .chip").forEach(c=>{const id=c.dataset.focusId,on=inc.includes(id),ex=exc.includes(id);
+    c.classList.toggle("on",on);c.classList.toggle("ex",ex);c.textContent=(ex?"−":"")+c.dataset.name;});
 }
 function syncControls(){
   $("#fDue").value=filter.due;$("#fStatus").value=filter.status;$("#fText").value=filter.text;$("#sortBy").value=sortKey;
@@ -1558,6 +1588,7 @@ function syncControls(){
   $$("#fTags .chip").forEach(c=>{const tg=c.dataset.tag,inc=filter.tags.includes(tg),exc=ex.includes(tg);
     c.classList.toggle("on",inc);c.classList.toggle("ex",exc);c.textContent=(exc?"−":"")+"#"+tg;});
   $("#tagMode").textContent=tagModeAll?"match all":"match any";
+  syncFocusChips();
 }
 function updateDateInputs(){
   const w=$("#dateInputs"),sep=$("#dateSep"),b=$("#fDateB"),a=$("#fDateA");
@@ -1573,6 +1604,14 @@ function cycleTag(tg){                          // none → include → exclude 
   if(i>=0){filter.tags.splice(i,1);filter.exTags.push(tg);}
   else if(e>=0){filter.exTags.splice(e,1);}
   else{filter.tags.push(tg);}
+  activeSaved=null;applyAndRender();
+}
+function cycleFocus(id){                         // none → include → exclude → none
+  filter.focus=filter.focus||[];filter.exFocus=filter.exFocus||[];
+  const i=filter.focus.indexOf(id), e=filter.exFocus.indexOf(id);
+  if(i>=0){filter.focus.splice(i,1);filter.exFocus.push(id);}
+  else if(e>=0){filter.exFocus.splice(e,1);}
+  else{filter.focus.push(id);}
   activeSaved=null;applyAndRender();
 }
 function cycleList(id){                          // none → include → exclude → none
@@ -1771,7 +1810,9 @@ function newFocusList(name,addTaskId){
 }
 function renameFocusList(id,name){const l=focusById(id);if(l){l.name=name;saveFocus();renderFocusNav();if(activeFocusId===id)setTitle(name);}}
 function deleteFocusList(id){
-  FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();renderFocusNav();updateNavCounts();
+  FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();
+  if(filter.focus)filter.focus=filter.focus.filter(x=>x!==id);if(filter.exFocus)filter.exFocus=filter.exFocus.filter(x=>x!==id);
+  renderFocusNav();updateNavCounts();
   if(activeFocusId===id){focusView=false;activeFocusId=null;filter=defaultFilter();starOnly=false;setTitle("All open");applyAndRender();}
 }
 function clearFocusList(id){
@@ -1807,6 +1848,7 @@ function moveInFocus(id,taskId,dir){         // works on what's on screen, so st
 function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSaved=null;saveView("focus",id);const l=focusById(id);setTitle(l?l.name:"Focus");closePop();renderFocusView();updateBulkBar();closeSide();}
 
 function renderFocusNav(){
+  renderFocusChips();                                   // the filter pop's focus-list chips mirror the sidebar
   const box=$("#focusNav");if(!box)return;box.innerHTML="";
   if(!FOCUS.lists.length){box.innerHTML='<div class="synced" style="padding:2px 10px">None yet — create one, then pin tasks to it.</div>';return;}
   for(const l of FOCUS.lists){
@@ -2146,6 +2188,8 @@ function suggestName(){
   else if(filter.due==="between")p.push((filter.dateA||"…")+"→"+(filter.dateB||"…"));
   filter.lists.map(id=>LISTS.find(l=>l.id===id)).filter(Boolean).forEach(l=>p.push(l.displayName));
   (filter.exLists||[]).map(id=>LISTS.find(l=>l.id===id)).filter(Boolean).forEach(l=>p.push("−"+l.displayName));
+  (filter.focus||[]).map(focusById).filter(Boolean).forEach(l=>p.push("◎"+l.name));
+  (filter.exFocus||[]).map(focusById).filter(Boolean).forEach(l=>p.push("−◎"+l.name));
   filter.tags.forEach(t=>p.push("#"+t));(filter.exTags||[]).forEach(t=>p.push("−#"+t));if(filter.text)p.push('"'+filter.text+'"');
   return p.join(" · ")||"My smart list";
 }
@@ -3208,7 +3252,33 @@ async function listMenu(L){
 function openPop(){$("#filterPop").classList.add("open");$("#scrim").classList.add("on");}
 function closePop(){$("#filterPop").classList.remove("open");if(!$("#detail").classList.contains("open"))$("#scrim").classList.remove("on");}
 function openSide(){$("#side").classList.add("open");$("#scrim").classList.add("on");}
-function closeSide(){$("#side").classList.remove("open");if(!$("#detail").classList.contains("open")&&!$("#filterPop").classList.contains("open"))$("#scrim").classList.remove("on");}
+/* Hamburger: on a wide screen it hides/shows the sidebar (remembered across reloads);
+   on a phone-width layout it opens the slide-in drawer as before. */
+const LS_SIDEBAR="smarttodo.sidebar.v1";
+const narrowLayout=()=>window.matchMedia("(max-width:820px)").matches;
+function sidebarHidden(){return $("#app").classList.contains("sbhide");}
+function setSidebarHidden(hide){
+  $("#app").classList.toggle("sbhide",!!hide);
+  try{localStorage.setItem(LS_SIDEBAR,hide?"hidden":"shown");}catch(_){}
+  syncMenuBtn();
+}
+function syncMenuBtn(){
+  const b=$("#menuBtn");if(!b)return;
+  const narrow=narrowLayout(),hidden=sidebarHidden();
+  b.title=narrow?"Menu":(hidden?"Show sidebar":"Hide sidebar");
+  b.setAttribute("aria-label",b.title);
+  b.setAttribute("aria-expanded",narrow?String($("#side").classList.contains("open")):String(!hidden));
+}
+function toggleSidebar(){
+  if(narrowLayout()){openSide();syncMenuBtn();return;}
+  setSidebarHidden(!sidebarHidden());
+}
+function restoreSidebarPref(){
+  let v=null;try{v=localStorage.getItem(LS_SIDEBAR);}catch(_){}
+  $("#app").classList.toggle("sbhide",v==="hidden");
+  syncMenuBtn();
+}
+function closeSide(){$("#side").classList.remove("open");if(!$("#detail").classList.contains("open")&&!$("#filterPop").classList.contains("open"))$("#scrim").classList.remove("on");syncMenuBtn();}
 function wireUi(){
   $("#fDue").onchange=e=>{filter.due=e.target.value;activeSaved=null;if(dueNeedsDates(filter.due)&&!filter.dateA)filter.dateA=todayISO();updateDateInputs();applyAndRender();};
   $("#fDateA").onchange=e=>{filter.dateA=e.target.value;activeSaved=null;applyAndRender();};
@@ -3247,7 +3317,9 @@ function wireUi(){
     openTimerPop(e.currentTarget);};                      // 2+ → popover listing each task, jump/stop
   $("#summaryBtn").onclick=openSummary;
   $("#detailClose").onclick=closeDetail;$("#detailDelete").onclick=()=>detailTask&&deleteTask(detailTask);
-  $("#menuBtn").onclick=openSide;
+  $("#menuBtn").onclick=toggleSidebar;
+  restoreSidebarPref();
+  window.matchMedia("(max-width:820px)").addEventListener("change",syncMenuBtn);
   $("#signOutBtn").onclick=()=>{hideReauth();clearStuckInteraction();return IS_MOBILE?window.msalApp.logoutRedirect():window.msalApp.logoutPopup();};
   $("#scrim").onclick=()=>{closePop();closeDetail();closeSide();closeMenu();};
   document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMenu();if(selMode){exitSelect();return;}const m=document.querySelector(".modal");if(m){closeModal(m);return;}closePop();closeDetail();closeSide();}});
