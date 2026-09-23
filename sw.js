@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v22";   // bump: sliding-tile reorder in focus lists
+const CACHE = "smarttodo-v23";   // bump: bulk due-date change + push today's tasks to tomorrow
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",

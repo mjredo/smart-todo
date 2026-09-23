@@ -640,6 +640,10 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <span class="synchdr" id="syncHdr"></span>
       <div class="spacer"></div>
       <button class="tool timerchip" id="timerChip" style="display:none" title="Timer running"></button>
+      <button class="tool" id="pushTodayBtn" style="display:none" title="Move all of today's open tasks to tomorrow">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M3 5h12v16H3zM3 9h12M7 3v4M11 3v4M14 15h8M19 12l3 3-3 3"/></svg>
+        <span class="hide-sm">Today → Tomorrow</span>
+      </button>
       <button class="tool" id="selectBtn" title="Select multiple tasks">
         <svg class="icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         <span class="hide-sm">Select</span>
@@ -697,6 +701,7 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <div class="bspacer"></div>
       <button class="bbtn" id="bulkComplete" title="Mark complete / reopen"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span class="hide-sm">Complete</span></button>
       <button class="bbtn" id="bulkStar" title="Star / unstar"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 21.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg><span class="hide-sm">Star</span></button>
+      <button class="bbtn" id="bulkDue" title="Change due date"><svg class="icon" viewBox="0 0 24 24"><path d="M3 5h18v16H3zM3 9h18M8 3v4M16 3v4"/></svg><span class="hide-sm">Due</span></button>
       <button class="bbtn" id="bulkFocus" title="Add to a focus list"><svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/></svg><span class="hide-sm">Focus</span></button>
       <button class="bbtn" id="bulkUnfocus" style="display:none" title="Remove from this focus list"><svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 2v2H7v-2l3-2z"/><path d="M12 16v6"/><path d="M4 3.5l16 17"/></svg><span class="hide-sm">Remove</span></button>
       <button class="bbtn" id="bulkMove" title="Move to another list"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span class="hide-sm">Move</span></button>
@@ -1544,6 +1549,7 @@ function updateNavCounts(){
     b_none:open.filter(t=>!taskDue(t)).length,
     b_done:TASKS.filter(t=>t.status==="completed").length};
   $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=c[b.dataset.nav]||"");
+  const pb=$("#pushTodayBtn");if(pb)pb.style.display=c.b_today?"":"none";   // only offer it when there's something to push
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
   updateFocusCounts();
   updateSavedCounts();
@@ -2374,6 +2380,40 @@ function bulkStar(){
   const allStar=ts.every(t=>t.importance==="high"),want=allStar?"normal":"high";
   ts.forEach(t=>{if(t.importance!==want)patchTask(t,{importance:want});});
   toast((allStar?"Unstarred ":"Starred ")+ts.length);exitSelect();
+}
+function bulkDue(anchor){
+  if(!selected.size)return;
+  const items=[{label:"Today",onClick:()=>bulkSetDue(isoPlus(0))},{label:"Tomorrow",onClick:()=>bulkSetDue(isoPlus(1))},
+               {label:"Next Monday",onClick:()=>bulkSetDue(nextDowISO(1))},{label:"Next week (+7 days)",onClick:()=>bulkSetDue(isoPlus(7))},
+               {label:"Pick a date…",onClick:bulkPickDue},{label:"Remove due date",onClick:()=>bulkSetDue(null)}];
+  popMenu(anchor,items);
+}
+function bulkPickDue(){
+  const n=selected.size;
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Move ${n} task${n>1?"s":""}</div><div class="msub">Pick the new due date</div>`;
+    const i=el("input","minput");i.type="date";i.value=isoPlus(1);
+    card.appendChild(i);
+    const foot=el("div","mfoot");
+    const cancel=el("button","btn2","Cancel");cancel.onclick=close;
+    const ok=el("button","btn2 primary","Move");ok.onclick=()=>{if(i.value){close();bulkSetDue(i.value);}};
+    foot.append(cancel,ok);card.appendChild(foot);
+    setTimeout(()=>{try{i.showPicker&&i.showPicker();}catch(_){i.focus();}},80);
+  });
+}
+function bulkSetDue(iso){
+  const ts=selectedTasks();if(!ts.length)return;
+  const want=iso?ymd(parseYMD(iso)):"";
+  ts.forEach(t=>{const d=taskDue(t);if((d?ymd(d):"")!==want)setDue(t,iso);});
+  toast(iso?`Moved ${ts.length} to ${fmtDate(parseYMD(iso))}`:`Cleared due date on ${ts.length}`);exitSelect();
+}
+function pushTodayToTomorrow(){                          // one tap: every open task due today → tomorrow
+  const today=startOfToday().getTime();
+  const ts=TASKS.filter(t=>{if(t.status==="completed")return false;const d=taskDue(t);return d&&d.getTime()===today;});
+  if(!ts.length){toast("Nothing due today");return;}
+  if(!confirm(`Move ${ts.length} open task${ts.length>1?"s":""} due today to tomorrow?`))return;
+  const tmr=isoPlus(1);ts.forEach(t=>setDue(t,tmr));
+  toast(`Pushed ${ts.length} to tomorrow`);
 }
 function popMenu(anchor,items){                          // small dropdown, mirrors openFocusMenu positioning
   closeMenu();
@@ -3306,6 +3346,8 @@ function wireUi(){
   $("#bulkComplete").onclick=bulkComplete;
   $("#bulkStar").onclick=bulkStar;
   $("#bulkFocus").onclick=e=>bulkFocus(e.currentTarget);
+  $("#bulkDue").onclick=e=>bulkDue(e.currentTarget);
+  $("#pushTodayBtn").onclick=pushTodayToTomorrow;
   $("#bulkMove").onclick=e=>bulkMove(e.currentTarget);
   $("#bulkDelete").onclick=bulkDelete;
   $("#bulkUnfocus").onclick=removeSelFromFocus;
