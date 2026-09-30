@@ -100,6 +100,23 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .addlist{display:flex;align-items:center;gap:8px;width:100%;border:1px dashed var(--line);background:none;
            color:var(--muted);padding:9px 10px;border-radius:10px;margin-top:4px}
   .addlist:hover{border-color:var(--accent);color:var(--accent)}
+  .row-x.row-more:hover{color:var(--accent)}
+  @media (hover:none){.row-x.row-more{opacity:.55}}     /* no hover on a phone — keep the ⋯ findable */
+  /* collapsible sidebar sections */
+  .sec-h{display:flex;align-items:center;gap:6px;width:100%;border:0;background:none;text-align:left;
+         margin:12px 0 3px;padding:4px 10px;border-radius:8px;font-size:11px;letter-spacing:.07em;
+         text-transform:uppercase;color:var(--muted);font-weight:600}
+  .sec-h:hover{color:var(--ink);background:var(--chip)}
+  .sec-h .icon{width:14px;height:14px;transition:transform .15s}
+  .sec-h .secn{margin-left:auto;font-weight:500;letter-spacing:0;display:none}
+  .sec.collapsed .sec-h .icon{transform:rotate(-90deg)}
+  .sec.collapsed .sec-h .secn{display:inline}
+  .sec.collapsed .secbody{display:none}
+  /* sidebar reorder: drag with the mouse, or press-and-hold on touch */
+  .navrow{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  .navrow.sbdrag{background:var(--panel-2);box-shadow:var(--shadow-md);border-radius:10px;position:relative;z-index:2}
+  .navrow.sbdrag .navbtn{pointer-events:none}
+  body.sbdragging,body.sbdragging *{cursor:grabbing!important}
   .side-foot{margin-top:auto;padding-top:12px;display:flex;flex-direction:column;gap:2px;align-items:stretch}
   .synced{font-size:10.5px;color:var(--muted);padding:6px 10px 0}
 
@@ -611,20 +628,47 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <div class="logo"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
       Smart To Do
     </div>
-    <h4>Views</h4>
-    <div id="builtins"></div>
-    <h4>Focus lists</h4>
-    <div id="focusNav"></div>
-    <button class="addlist" id="newFocusBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New focus list</button>
-    <h4>Smart lists</h4>
-    <div id="savedLists"></div>
-    <div class="synced" id="noSaved">Open <b>Filter</b>, build a query, then <b>Save</b>.</div>
-    <h4>Lists</h4>
-    <div id="listNav"></div>
-    <button class="addlist" id="newListBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New list</button>
-    <h4>Maintenance</h4>
-    <button class="addlist" id="dedupeBtn"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg> Remove duplicates</button>
-    <button class="addlist" id="voiceModelBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Voice model</button>
+    <!-- Each section header collapses its body (remembered per device). Rows reorder by
+         dragging (press-and-hold on touch) or via the row's ⋯ menu. -->
+    <section class="sec" data-sec="fav">
+      <button class="sec-h">Favorites<span class="secn"></span></button>
+      <div class="secbody">
+        <div id="favNav"></div>
+        <div class="synced" id="noFav">Tap <b>⋯</b> on any view or list → <b>Add to favorites</b>.</div>
+      </div>
+    </section>
+    <section class="sec" data-sec="views">
+      <button class="sec-h">Views<span class="secn"></span></button>
+      <div class="secbody"><div id="builtins"></div></div>
+    </section>
+    <section class="sec" data-sec="focus">
+      <button class="sec-h">Focus lists<span class="secn"></span></button>
+      <div class="secbody">
+        <div id="focusNav"></div>
+        <button class="addlist" id="newFocusBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New focus list</button>
+      </div>
+    </section>
+    <section class="sec" data-sec="smart">
+      <button class="sec-h">Smart lists<span class="secn"></span></button>
+      <div class="secbody">
+        <div id="savedLists"></div>
+        <div class="synced" id="noSaved">Open <b>Filter</b>, build a query, then <b>Save</b>.</div>
+      </div>
+    </section>
+    <section class="sec" data-sec="lists">
+      <button class="sec-h">Lists<span class="secn"></span></button>
+      <div class="secbody">
+        <div id="listNav"></div>
+        <button class="addlist" id="newListBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> New list</button>
+      </div>
+    </section>
+    <section class="sec" data-sec="maint">
+      <button class="sec-h">Maintenance<span class="secn"></span></button>
+      <div class="secbody">
+        <button class="addlist" id="dedupeBtn"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg> Remove duplicates</button>
+        <button class="addlist" id="voiceModelBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Voice model</button>
+      </div>
+    </section>
     <div class="synced" id="syncState"></div>
     <div class="synced" id="buildTag"></div>
     <div class="side-foot">
@@ -811,6 +855,11 @@ const CLOUD_FOCUS="/me/drive/special/approot:/focus.json:/content";
 const LS_ORDER="smarttodo.order.v1", LS_SORT="smarttodo.sort.v1";
 const CLOUD_ORDER="/me/drive/special/approot:/task-order.json:/content";
 let ORDER=[], _rank=new Map();          // manual drag order: task ids, best-effort synced
+/* Sidebar prefs: favorites ({type,id} in the user's order) and the hand order of the
+   To Do lists — synced like focus lists. Which sections are collapsed is per device. */
+const LS_SIDEP="smarttodo.sideprefs.v1", LS_SECS="smarttodo.sidesecs.v1";
+const CLOUD_SIDEP="/me/drive/special/approot:/sidebar.json:/content";
+let SIDEP=readSidePLS();
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;   // voice notes
 const LS_CACHE="smarttodo.cache.v1", LS_OUTBOX="smarttodo.outbox.v1", LS_LASTSYNC="smarttodo.lastsync.v1";
 let offline=false, outbox=[], tmpSeq=0, lastSyncAt=+localStorage.getItem(LS_LASTSYNC)||0;
@@ -990,7 +1039,7 @@ async function start(){
   const snap0=loadCache();
   if(snap0&&snap0.lists&&snap0.lists.length){
     LISTS=snap0.lists; TASKS=snap0.tasks; rebuildTags();
-    window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS();
+    window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS(); SIDEP=readSidePLS();
     outbox.forEach(applyOpLocal);
     reindexOrder(); sortKey=localStorage.getItem(LS_SORT)||sortKey;
     renderNav(); renderSaved(); renderFilterControls();
@@ -1002,7 +1051,7 @@ async function start(){
   }
   const seq0=_loadSeq;
   try{
-    await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder();
+    await loadAll(); await loadSaved(); FOCUS=await loadFocus(); TIMELOG=await loadTimelog(); ORDER=await loadOrder(); SIDEP=await loadSideP();
     offline=false; _netProbe={ok:true,at:Date.now()}; hideReauth(); cacheData(); markSynced();
   }catch(e){
     const snap=loadCache(), freshLists=_loadSeq>seq0&&LISTS.length;
@@ -1014,7 +1063,7 @@ async function start(){
       else error("Some data couldn't load: "+(e.message||e));
     }else if(snap&&snap.lists&&snap.lists.length){   // fall back to the last saved snapshot
       LISTS=snap.lists; TASKS=snap.tasks; rebuildTags();
-      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS();
+      window._saved=readLS(); FOCUS=readFocusLS(); TIMELOG=readTimelogLS(); ORDER=readOrderLS(); SIDEP=readSidePLS();
       offline=!e.reauth;                             // a token problem is not a network problem
       if(e.reauth)showReauth(prePainted?"":"Showing your last saved copy. Sign in again to sync.");
     }else{                                           // never synced on this device yet
@@ -1520,24 +1569,30 @@ let starOnly=false;
 function renderNav(){
   const b=$("#builtins");b.innerHTML="";
   for(const v of BUILTINS){
+    const rowd=el("div","listrow");
     const btn=el("button","navbtn");btn.dataset.nav=v.id;
     btn.innerHTML=`<span class="ic">${svg(v.icon)}</span><span class="lbl">${v.name}</span><span class="ct"></span>`;
     btn.onclick=()=>{focusView=false;filter=v.f();starOnly=!!v.star;if(v.sort)sortKey=v.sort;activeSaved=null;saveView("builtin",v.id);setTitle(v.name);applyAndRender();closeSide();};
-    b.appendChild(btn);
+    const x=moreBtn("Add to favorites");
+    x.onclick=e=>{e.stopPropagation();popMenu(x,[favItem("builtin",v.id)]);};
+    rowd.appendChild(btn);rowd.appendChild(x);b.appendChild(rowd);
   }
   const ln=$("#listNav");ln.innerHTML="";
-  for(const L of LISTS){
-    const rowd=el("div","listrow");
+  for(const L of orderedLists()){
+    const rowd=el("div","listrow navrow");rowd.dataset.key=L.id;
     const btn=el("button","navbtn");btn.dataset.list=L.id;
     btn.innerHTML=`<span class="ic">${svg(IC.list)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=L.displayName;
     btn.onclick=()=>{focusView=false;filter={...defaultFilter(),lists:[L.id]};starOnly=false;activeSaved=null;saveView("list",L.id);setTitle(L.displayName);applyAndRender();closeSide();};
-    const x=el("button","row-x");x.innerHTML=svg(IC.check).replace(IC.check,'<path d="M18 6 6 18M6 6l12 12"/>');x.title="Rename / delete list";
-    x.onclick=e=>{e.stopPropagation();listMenu(L);};
+    const x=moreBtn("Favorite / move / rename / delete");
+    x.onclick=e=>{e.stopPropagation();popMenu(x,[favItem("list",L.id),...moveItems(ln,L.id,commitListOrder),
+      {label:"Rename / delete…",onClick:()=>listMenu(L)}]);};
     rowd.appendChild(btn);rowd.appendChild(x);ln.appendChild(rowd);
+    wireSideSort(rowd,commitListOrder);
   }
   renderFocusNav();
   updateNavCounts();
+  renderFavNav();
 }
 function passesStar(t){return !starOnly||t.importance==="high";}
 function updateNavCounts(){
@@ -1553,6 +1608,7 @@ function updateNavCounts(){
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
   updateFocusCounts();
   updateSavedCounts();
+  syncFavState();
 }
 function reflectActiveNav(){$$(".navbtn").forEach(b=>b.classList.remove("active"));if(activeSaved){const s=$(`[data-saved="${activeSaved}"]`);if(s)s.classList.add("active");}}
 
@@ -1816,7 +1872,7 @@ function newFocusList(name,addTaskId){
 }
 function renameFocusList(id,name){const l=focusById(id);if(l){l.name=name;saveFocus();renderFocusNav();if(activeFocusId===id)setTitle(name);}}
 function deleteFocusList(id){
-  FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();
+  FOCUS.lists=FOCUS.lists.filter(l=>l.id!==id);saveFocus();dropFav("focus",id);
   if(filter.focus)filter.focus=filter.focus.filter(x=>x!==id);if(filter.exFocus)filter.exFocus=filter.exFocus.filter(x=>x!==id);
   renderFocusNav();updateNavCounts();
   if(activeFocusId===id){focusView=false;activeFocusId=null;filter=defaultFilter();starOnly=false;setTitle("All open");applyAndRender();}
@@ -1856,18 +1912,20 @@ function enterFocus(id){focusView=true;activeFocusId=id;starOnly=false;activeSav
 function renderFocusNav(){
   renderFocusChips();                                   // the filter pop's focus-list chips mirror the sidebar
   const box=$("#focusNav");if(!box)return;box.innerHTML="";
-  if(!FOCUS.lists.length){box.innerHTML='<div class="synced" style="padding:2px 10px">None yet — create one, then pin tasks to it.</div>';return;}
+  if(!FOCUS.lists.length){box.innerHTML='<div class="synced" style="padding:2px 10px">None yet — create one, then pin tasks to it.</div>';renderFavNav();return;}
   for(const l of FOCUS.lists){
-    const rowd=el("div","listrow");
+    const rowd=el("div","listrow navrow");rowd.dataset.key=l.id;
     const btn=el("button","navbtn");btn.dataset.focus=l.id;
     btn.innerHTML=`<span class="ic">${svg(IC.focus)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=l.name;
     btn.onclick=()=>enterFocus(l.id);
-    const x=el("button","row-x");x.innerHTML=svg(IC.x);x.title="Rename / clear / delete";
-    x.onclick=e=>{e.stopPropagation();focusListMenu(l,x);};
+    const x=moreBtn("Favorite / move / rename / clear / delete");
+    x.onclick=e=>{e.stopPropagation();popMenu(x,[favItem("focus",l.id),...moveItems(box,l.id,commitFocusOrder),...focusMenuItems(l)]);};
     rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
+    wireSideSort(rowd,commitFocusOrder);
   }
   updateFocusCounts();
+  renderFavNav();
 }
 function updateFocusCounts(){
   $$("#focusNav .navbtn").forEach(b=>{const l=focusById(b.dataset.focus);const n=l?l.taskIds.filter(id=>TASKS.find(t=>t.id===id)).length:0;b.querySelector(".ct").textContent=n||"";});
@@ -1895,6 +1953,7 @@ function renderFocusView(){
   if(_focusDrag)return;                                 // a drag owns the DOM right now — a background sync must not rebuild it mid-drag
   $$(".navbtn").forEach(b=>b.classList.remove("active"));
   const fb=$(`[data-focus="${activeFocusId}"]`);if(fb)fb.classList.add("active");
+  syncFavState();
   $("#filterBadge").style.display="none";
   const l=focusById(activeFocusId);
   const rows=focusListTasks(activeFocusId);
@@ -2148,6 +2207,182 @@ function openAddTime(t){
   });
 }
 
+/* ---------------- sidebar: favorites, reorder, collapsible sections ---------------- */
+function normalizeSideP(raw){
+  const seen=new Set(),favs=[];
+  for(const f of (raw&&Array.isArray(raw.favs)?raw.favs:[])){
+    if(!f||!f.type||f.id==null)continue;
+    const k=f.type+":"+f.id;if(seen.has(k))continue;seen.add(k);
+    favs.push({type:String(f.type),id:String(f.id)});
+  }
+  const listOrder=(raw&&Array.isArray(raw.listOrder)?raw.listOrder:[]).filter(x=>typeof x==="string");
+  return{version:1,favs,listOrder};
+}
+function readSidePLS(){try{return normalizeSideP(JSON.parse(localStorage.getItem(LS_SIDEP)||"null"));}catch{return normalizeSideP(null);}}
+async function loadSideP(){
+  try{const j=await gfetch(CLOUD_SIDEP);const p=normalizeSideP(j);localStorage.setItem(LS_SIDEP,JSON.stringify(p));return p;}
+  catch(e){return readSidePLS();}                       // 404 (no file yet) or offline → local copy
+}
+function saveSideP(){
+  localStorage.setItem(LS_SIDEP,JSON.stringify(SIDEP));
+  if(cloudOK)gfetch(CLOUD_SIDEP,{method:"PUT",body:JSON.stringify(SIDEP)}).catch(()=>{});
+}
+const NAV_ATTR={builtin:"nav",list:"list",saved:"saved",focus:"focus"};
+const favKey=(type,id)=>type+":"+id;
+function isFav(type,id){return SIDEP.favs.some(f=>f.type===type&&f.id===String(id));}
+function toggleFav(type,id){
+  id=String(id);
+  const on=isFav(type,id);
+  if(on)SIDEP.favs=SIDEP.favs.filter(f=>!(f.type===type&&f.id===id));
+  else SIDEP.favs.push({type,id});
+  saveSideP();renderFavNav();
+  toast(on?"Removed from favorites":"Added to favorites");
+}
+function dropFav(type,id){if(isFav(type,id)){SIDEP.favs=SIDEP.favs.filter(f=>!(f.type===type&&f.id===String(id)));saveSideP();renderFavNav();}}
+function favItem(type,id){return{label:isFav(type,id)?"Remove from favorites":"Add to favorites",onClick:()=>toggleFav(type,id)};}
+function favInfo(f){
+  if(f.type==="builtin"){const v=BUILTINS.find(x=>x.id===f.id);return v&&{name:v.name,icon:v.icon};}
+  if(f.type==="focus"){const l=focusById(f.id);return l&&{name:l.name,icon:IC.focus};}
+  if(f.type==="saved"){const s=(window._saved||[]).find(x=>x.id===f.id);return s&&{name:s.name,icon:IC.star};}
+  if(f.type==="list"){const L=LISTS.find(x=>x.id===f.id);return L&&{name:L.displayName,icon:IC.list};}
+  return null;
+}
+/* The real sidebar button a favorite stands in for. A favorite just replays that
+   button's click, so every view-switch path (and restoreView) stays the one path. */
+function navSource(f){const a=NAV_ATTR[f.type];return a?document.querySelector(`#side [data-${a}="${CSS.escape(f.id)}"]`):null;}
+function moreBtn(title){
+  const x=el("button","row-x row-more");x.title=title;
+  x.innerHTML=svg('<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',"fill");
+  return x;
+}
+/* Move up / down / to top for a row's ⋯ menu — the touch-free alternative to dragging. */
+function moveItems(box,key,commit){
+  const ids=[...box.children].map(c=>c.dataset.key).filter(Boolean),i=ids.indexOf(key),out=[];
+  const swap=j=>()=>{const n=ids.slice();[n[i],n[j]]=[n[j],n[i]];commit(n);};
+  if(i>1)out.push({label:"Move to top",onClick:()=>commit([key,...ids.filter(x=>x!==key)])});
+  if(i>0)out.push({label:"Move up",onClick:swap(i-1)});
+  if(i>=0&&i<ids.length-1)out.push({label:"Move down",onClick:swap(i+1)});
+  return out;
+}
+function orderedLists(){
+  const pos=new Map(SIDEP.listOrder.map((id,i)=>[id,i]));
+  return LISTS.map((L,i)=>({L,i,p:pos.has(L.id)?pos.get(L.id):Infinity}))
+    .sort((a,b)=>a.p===b.p?a.i-b.i:(a.p<b.p?-1:1)).map(x=>x.L);   // lists never placed keep To Do's order, at the end
+}
+function refreshActive(){
+  if(focusView){$$(".navbtn").forEach(b=>b.classList.remove("active"));const fb=$(`[data-focus="${activeFocusId}"]`);if(fb)fb.classList.add("active");}
+  else reflectActiveNav();
+  syncFavState();
+}
+function commitListOrder(ids){SIDEP.listOrder=ids;saveSideP();renderNav();refreshActive();}
+function commitFocusOrder(ids){
+  const by=new Map(FOCUS.lists.map(l=>[l.id,l]));
+  FOCUS.lists=[...ids.map(id=>by.get(id)).filter(Boolean),...FOCUS.lists.filter(l=>!ids.includes(l.id))];
+  saveFocus();renderFocusNav();refreshActive();
+}
+async function commitSavedOrder(ids){
+  const all=window._saved||[],by=new Map(all.map(s=>[s.id,s]));
+  window._saved=[...ids.map(id=>by.get(id)).filter(Boolean),...all.filter(s=>!ids.includes(s.id))];
+  renderSaved();refreshActive();await persistSaved();
+}
+function commitFavOrder(keys){
+  const by=new Map(SIDEP.favs.map(f=>[favKey(f.type,f.id),f]));
+  SIDEP.favs=[...keys.map(k=>by.get(k)).filter(Boolean),...SIDEP.favs.filter(f=>!keys.includes(favKey(f.type,f.id)))];
+  saveSideP();renderFavNav();
+}
+function renderFavNav(){
+  const box=$("#favNav");if(!box)return;box.innerHTML="";
+  let shown=0;
+  for(const f of SIDEP.favs){
+    const info=favInfo(f);if(!info)continue;             // its list isn't loaded (or is gone) — keep the favorite, just don't draw it
+    shown++;
+    const key=favKey(f.type,f.id);
+    const rowd=el("div","listrow navrow");rowd.dataset.key=key;
+    const btn=el("button","navbtn");btn.dataset.fav=key;btn._fav=f;
+    btn.innerHTML=`<span class="ic">${svg(info.icon)}</span><span class="lbl"></span><span class="ct"></span>`;
+    btn.querySelector(".lbl").textContent=info.name;
+    btn.onclick=()=>{const s=navSource(f);if(s)s.click();else toast("That view isn't available right now");};
+    const x=moreBtn("Unfavorite / move");
+    x.onclick=e=>{e.stopPropagation();popMenu(x,[favItem(f.type,f.id),...moveItems(box,key,commitFavOrder)]);};
+    rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
+    wireSideSort(rowd,commitFavOrder);
+  }
+  const nf=$("#noFav");if(nf)nf.style.display=shown?"none":"block";
+  syncFavState();
+}
+/* Favorites mirror their source row: same highlight, same count badge. */
+function syncFavState(){
+  $$("#favNav [data-fav]").forEach(b=>{
+    const s=b._fav&&navSource(b._fav),sc=s&&s.querySelector(".ct");
+    b.classList.toggle("active",!!s&&s.classList.contains("active"));
+    b.querySelector(".ct").textContent=sc?sc.textContent:"";
+  });
+  $$("#side .sec").forEach(s=>{const n=s.querySelectorAll(".secbody .navbtn").length,c=s.querySelector(".secn");if(c)c.textContent=n?String(n):"";});
+}
+function wireSections(){
+  let col=[];try{col=JSON.parse(localStorage.getItem(LS_SECS)||"[]")||[];}catch(_){}
+  $$("#side .sec").forEach(s=>{
+    const h=s.querySelector(".sec-h");
+    h.insertAdjacentHTML("afterbegin",svg(IC.down));
+    const set=c=>{s.classList.toggle("collapsed",c);h.setAttribute("aria-expanded",String(!c));};
+    set(col.includes(s.dataset.sec));
+    h.onclick=()=>{
+      set(!s.classList.contains("collapsed"));
+      const now=$$("#side .sec.collapsed").map(x=>x.dataset.sec);
+      try{localStorage.setItem(LS_SECS,JSON.stringify(now));}catch(_){}
+    };
+  });
+}
+/* Drag a sidebar row to reorder its section: a mouse drags straight away (after a few
+   px, so a click is still a click); touch lifts on press-and-hold, like the task list.
+   The row itself hops between slots; commit(keysInNewOrder) persists the result. */
+let _sideDrag=null;
+function wireSideSort(row,commit){
+  row.addEventListener("pointerdown",e=>{
+    if(_sideDrag||_tileDrag||(e.button&&e.button!==0))return;
+    if(e.target.closest&&e.target.closest(".row-x"))return;
+    const box=row.parentElement,touch=e.pointerType!=="mouse",slop=touch?10:5;
+    const sx=e.clientX,sy=e.clientY,pid=e.pointerId,before=[...box.children].map(c=>c.dataset.key).join("\n");
+    let hold=null,live=false;
+    const block=ev=>ev.preventDefault();                // non-passive: no page scroll under a lifted row
+    const begin=()=>{
+      hold=null;live=true;_sideDrag=row;
+      row.classList.add("sbdrag");document.body.classList.add("sbdragging");
+      document.addEventListener("touchmove",block,{passive:false});
+      if(touch)try{navigator.vibrate&&navigator.vibrate(12);}catch(_){}
+    };
+    const onMove=ev=>{
+      if(ev.pointerId!==pid)return;
+      if(!live){
+        if(Math.abs(ev.clientX-sx)<=slop&&Math.abs(ev.clientY-sy)<=slop)return;
+        if(touch){end();return;}                       // moved before the hold fired — that's a scroll
+        begin();
+      }
+      let tgt=null;
+      for(const r of box.children){if(r===row||!r.dataset.key)continue;const b=r.getBoundingClientRect();if(ev.clientY<b.top+b.height/2){tgt=r;break;}}
+      if(tgt?row.nextElementSibling!==tgt:box.lastElementChild!==row)box.insertBefore(row,tgt);
+    };
+    const end=()=>{
+      if(hold){clearTimeout(hold);hold=null;}
+      window.removeEventListener("pointermove",onMove,true);
+      window.removeEventListener("pointerup",end,true);
+      window.removeEventListener("pointercancel",end,true);
+      document.removeEventListener("touchmove",block);
+      if(!live)return;
+      live=false;_sideDrag=null;row._dragEnd=Date.now();
+      row.classList.remove("sbdrag");document.body.classList.remove("sbdragging");
+      const ids=[...box.children].map(c=>c.dataset.key).filter(Boolean);
+      if(row.isConnected&&ids.join("\n")!==before)commit(ids);   // a re-render mid-drag orphans the row — then drop it
+    };
+    window.addEventListener("pointermove",onMove,true);
+    window.addEventListener("pointerup",end,true);
+    window.addEventListener("pointercancel",end,true);
+    if(touch)hold=setTimeout(begin,400);
+  });
+  row.addEventListener("click",e=>{if(row._dragEnd&&Date.now()-row._dragEnd<400){e.stopPropagation();e.preventDefault();}},true);
+  row.addEventListener("contextmenu",e=>{if(_sideDrag)e.preventDefault();});
+}
+
 /* ---------------- saved smart lists (OneDrive-synced) ---------------- */
 function readLS(){try{return JSON.parse(localStorage.getItem(LS_SAVED)||"[]");}catch{return[];}}
 function writeLS(){localStorage.setItem(LS_SAVED,JSON.stringify(window._saved||[]));}
@@ -2162,16 +2397,22 @@ function renderSaved(){
   const box=$("#savedLists");box.innerHTML="";const list=window._saved||[];
   $("#noSaved").style.display=list.length?"none":"block";
   for(const s of list){
-    const rowd=el("div","saved-row");
+    const rowd=el("div","saved-row navrow");rowd.dataset.key=s.id;
     const btn=el("button","navbtn");btn.dataset.saved=s.id;
     btn.innerHTML=`<span class="ic">${svg(IC.star)}</span><span class="lbl"></span><span class="ct"></span>`;
     btn.querySelector(".lbl").textContent=s.name;
     btn.onclick=()=>{focusView=false;filter=JSON.parse(JSON.stringify(s.filter));tagModeAll=s.tagModeAll!==false;starOnly=false;activeSaved=s.id;saveView("saved",s.id);setTitle(s.name);applyAndRender();closeSide();};
-    const x=el("button","row-x");x.innerHTML='<svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M18 6 6 18M6 6l12 12"/></svg>';x.title="Delete smart list";
-    x.onclick=async e=>{e.stopPropagation();if(confirm(`Delete smart list “${s.name}”?`)){window._saved=window._saved.filter(x=>x.id!==s.id);await persistSaved();renderSaved();}};
+    const x=moreBtn("Favorite / move / rename / delete");
+    x.onclick=e=>{e.stopPropagation();popMenu(x,[favItem("saved",s.id),...moveItems(box,s.id,commitSavedOrder),
+      {label:"Rename…",onClick:async()=>{const n=prompt("Rename smart list:",s.name);if(!n||!n.trim()||n.trim()===s.name)return;
+        s.name=n.trim();await persistSaved();renderSaved();if(activeSaved===s.id)setTitle(s.name);}},
+      {label:"Delete smart list",onClick:async()=>{if(!confirm(`Delete smart list “${s.name}”?`))return;
+        window._saved=window._saved.filter(x=>x.id!==s.id);dropFav("saved",s.id);await persistSaved();renderSaved();}}]);};
     rowd.appendChild(btn);rowd.appendChild(x);box.appendChild(rowd);
+    wireSideSort(rowd,commitSavedOrder);
   }
   updateSavedCounts();
+  renderFavNav();
 }
 /* Recompute the sidebar badge for every saved smart list. Runs on each render
    cycle (via updateNavCounts) so the counts stay in step with the header, which
@@ -3282,7 +3523,7 @@ async function listMenu(L){
   if(name===null)return;
   if(name.trim().toLowerCase()==="delete"){
     if(!confirm(`Delete list “${L.displayName}” and ALL its tasks? This cannot be undone.`))return;
-    try{await gfetch(`/me/todo/lists/${L.id}`,{method:"DELETE"});LISTS=LISTS.filter(x=>x.id!==L.id);TASKS=TASKS.filter(t=>t._listId!==L.id);rebuildTags();filter=defaultFilter();setTitle("All open");renderNav();renderFilterControls();applyAndRender();toast("List deleted");}catch(e){error(e.message);}
+    try{await gfetch(`/me/todo/lists/${L.id}`,{method:"DELETE"});LISTS=LISTS.filter(x=>x.id!==L.id);dropFav("list",L.id);TASKS=TASKS.filter(t=>t._listId!==L.id);rebuildTags();filter=defaultFilter();setTitle("All open");renderNav();renderFilterControls();applyAndRender();toast("List deleted");}catch(e){error(e.message);}
     return;
   }
   if(name.trim()&&name.trim()!==L.displayName){try{const r=await gfetch(`/me/todo/lists/${L.id}`,{method:"PATCH",body:JSON.stringify({displayName:name.trim()})});L.displayName=r.displayName;TASKS.filter(t=>t._listId===L.id).forEach(t=>t._listName=L.displayName);renderNav();renderFilterControls();applyAndRender();toast("List renamed");}catch(e){error(e.message);}}
@@ -3338,6 +3579,7 @@ function wireUi(){
   $("#refreshBtn").onclick=async()=>{const b=$("#refreshBtn");b.style.opacity=.5;try{await loadAll();outbox.forEach(applyOpLocal);renderFilterControls();applyAndRender();cacheData();markSynced();if(!isOffline())flushOutbox();}catch(e){if(!e.reauth)error(e.offline||isOffline()?"Can't refresh — you're offline.":e.message);}b.style.opacity=1;};
   $("#addBtn").onclick=addTask;$("#addText").onkeydown=e=>{if(e.key==="Enter")addTask();};
   bindAddDraft();
+  wireSections();
   $("#newListBtn").onclick=newList;
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
   $("#voiceModelBtn").onclick=()=>{closeSide();openVoiceSettings();};
