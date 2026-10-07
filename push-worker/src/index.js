@@ -135,13 +135,13 @@ async function fireDue(env, user, subs) {
 async function refresh(env, user) {
   const token = await appToken(env);
   const base = `${GRAPH}/users/${encodeURIComponent(user)}/todo/lists`;
-  const lists = await pageAll(token, `${base}?$select=id,displayName`);
+  const lists = await pageAll(token, base);
   const now = Date.now();
   const items = [];
   await Promise.all(lists.map(async (L) => {
     let tasks;
     try {
-      tasks = await pageAll(token, `${base}/${L.id}/tasks?$filter=status ne 'completed'&$select=id,title,status,isReminderOn,reminderDateTime&$top=100`);
+      tasks = await pageAll(token, `${base}/${L.id}/tasks?$filter=status ne 'completed'&$top=100`);
     } catch (e) {
       if (e.status !== 400) throw e;   // some tenants reject the filter — fall back to reading everything
       tasks = (await pageAll(token, `${base}/${L.id}/tasks?$top=100`)).filter((t) => t.status !== "completed");
@@ -217,7 +217,7 @@ async function appToken(env) {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: env.CLIENT_ID,
-      client_secret: env.CLIENT_SECRET,
+      client_secret: String(env.CLIENT_SECRET || "").trim(),   // a pasted secret can carry a stray space or newline
       scope: "https://graph.microsoft.com/.default",
       grant_type: "client_credentials",
     }),
@@ -233,7 +233,7 @@ async function graph(token, url, opts = {}) {
     ...opts,
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", Prefer: 'outlook.timezone="UTC"', ...(opts.headers || {}) },
   });
-  if (!r.ok) throw httpErr(r.status, "Graph " + r.status + ": " + (await r.text().catch(() => "")).slice(0, 300));
+  if (!r.ok) throw httpErr(r.status, "Graph " + r.status + " " + url.replace(/^https:\/\/[^/]+/, "").replace(/users\/[^/]+/, "users/…") + ": " + (await r.text().catch(() => "")).slice(0, 200));
   return r.status === 204 ? null : r.json();
 }
 
