@@ -191,7 +191,7 @@ async function pushAll(env, user, targets, data) {
   let sent = 0;
   await Promise.all(targets.map(async (sub) => {
     try {
-      const payload = await buildPushPayload({ data, options: { ttl: 3600, urgency: "high", topic: (data.tag || "t").replace(/[^A-Za-z0-9_-]/g, "").slice(-32) } }, sub, vapid);
+      const payload = await buildPushPayload({ data, options: { ttl: 86400, urgency: "high", topic: (data.tag || "t").replace(/[^A-Za-z0-9_-]/g, "").slice(-32) } }, sub, vapid);
       const r = await fetch(sub.endpoint, payload);
       if (r.status === 404 || r.status === 410) gone.push(sub.endpoint);
       else if (r.ok) sent++;

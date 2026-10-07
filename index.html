@@ -100,6 +100,7 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .addlist{display:flex;align-items:center;gap:8px;width:100%;border:1px dashed var(--line);background:none;
            color:var(--muted);padding:9px 10px;border-radius:10px;margin-top:4px}
   .addlist:hover{border-color:var(--accent);color:var(--accent)}
+  .addlist.autoref select{margin-left:auto;background:none;border:none;color:inherit;font:inherit;padding:0 2px}
   .row-x.row-more:hover{color:var(--accent)}
   @media (hover:none){.row-x.row-more{opacity:.55}}     /* no hover on a phone — keep the ⋯ findable */
   /* collapsible sidebar sections */
@@ -671,6 +672,8 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <button class="sec-h">Maintenance<span class="secn"></span></button>
       <div class="secbody">
         <button class="addlist" id="dedupeBtn"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg> Remove duplicates</button>
+        <label class="addlist autoref" title="How often this device re-reads To Do and your synced lists"><svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg> Auto-refresh
+          <select id="autoRefSel"><option value="0">Off</option><option value="30">30 sec</option><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option><option value="900">15 min</option></select></label>
         <button class="addlist" id="remindersBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg> Reminder notifications</button>
         <button class="addlist" id="voiceModelBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Voice model</button>
       </div>
@@ -1029,6 +1032,7 @@ async function retryAuth(){
   }
 }
 async function gfetch(path,opts){
+  if(opts&&opts.method==="PUT"&&path.includes("/approot:"))_prefsTouchedAt=Date.now();
   const t=await tok();
   const r=await fetch(path.startsWith("http")?path:GRAPH+path,{...opts,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json",...(opts&&opts.headers)}});
   if(!r.ok){const b=await r.text().catch(()=>"");const e=new Error("Graph "+r.status+": "+b.slice(0,300));e.status=r.status;throw e;}
@@ -3594,6 +3598,10 @@ function wireUi(){
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
   $("#voiceModelBtn").onclick=()=>{closeSide();openVoiceSettings();};
   $("#remindersBtn").onclick=()=>{closeSide();openReminderSettings();};
+  $("#autoRefSel").value=String(AUTO_REF_SEC);
+  if(!$("#autoRefSel").value)$("#autoRefSel").value="60";
+  $("#autoRefSel").onchange=e=>{AUTO_REF_SEC=+e.target.value;try{localStorage.setItem(LS_AUTOREF,String(AUTO_REF_SEC));}catch(_){}
+    toast(AUTO_REF_SEC?"Auto-refresh every "+e.target.selectedOptions[0].text:"Auto-refresh off");};
   $("#selectBtn").onclick=()=>selMode?exitSelect():setSelectMode(true);
   $("#bulkClear").onclick=exitSelect;
   $("#bulkComplete").onclick=bulkComplete;
@@ -3643,12 +3651,52 @@ boot();
 /* Which copy of the app is actually running. A stale service-worker/browser copy looks
    exactly like a change that never shipped, so the build is on screen (sidebar, under
    Maintenance) and in the console to settle that question in one glance. */
-const APP_BUILD="v23 — reminder notifications";
+const APP_BUILD="v24 — auto-refresh";
 try{$("#buildTag").textContent="Build "+APP_BUILD;console.log("Smart To Do build",APP_BUILD);}catch(_){}
 if("serviceWorker" in navigator)window.addEventListener("load",()=>{
   const had=!!navigator.serviceWorker.controller;      // false on the very first install — not an update
   navigator.serviceWorker.register("sw.js").then(reg=>{try{reg.update();}catch(_){}}).catch(()=>{});
   navigator.serviceWorker.addEventListener("controllerchange",()=>{if(had)toast("App updated — refresh for the latest");});
+});
+
+/* ---------------- auto-refresh ----------------
+   Each device re-reads To Do (and the OneDrive focus lists, smart lists, order,
+   sidebar and time log) on a timer while the app is on screen, and again when you
+   come back to it. It holds off while you're in the middle of something (typing,
+   a dialog, a menu, dragging, selecting, or changes still uploading), so a refresh
+   never yanks the screen out from under you; the next tick catches up. */
+const LS_AUTOREF="smarttodo.autorefresh.v1";
+let AUTO_REF_SEC=(()=>{try{const v=localStorage.getItem(LS_AUTOREF);return v==null?60:+v;}catch(_){return 60;}})();
+let _autoBusy=false,_prefsTouchedAt=0,_lastPull=Date.now();   // start() has just read everything
+function userBusy(){
+  const a=document.activeElement,tag=a&&a.tagName;
+  if(a&&a.id!=="autoRefSel"&&(tag==="TEXTAREA"||tag==="SELECT"||a.isContentEditable||(tag==="INPUT"&&!["searchBox","fText"].includes(a.id))))return true;
+  if(document.querySelector(".modal,.menu,.timerpop,.tiledrag")||document.body.classList.contains("sbdragging"))return true;
+  if(selMode||_dragId||_tileDrag)return true;
+  return outbox.length>0||_flushing;
+}
+async function autoRefresh(why){
+  if(_autoBusy||isOffline()||document.visibilityState!=="visible"||!window.msalApp||!window.msalApp.getActiveAccount())return;
+  if(userBusy())return;
+  _autoBusy=true;const t0=Date.now();
+  try{
+    const [,f,o,sp,tl]=await Promise.all([loadAll(),loadFocus(),loadOrder(),loadSideP(),loadTimelog()]);
+    if(_prefsTouchedAt<t0){FOCUS=f;ORDER=o;SIDEP=sp;TIMELOG=tl;}   // a local save raced the read: keep the local copy
+    await loadSaved();
+    outbox.forEach(applyOpLocal);
+    reindexOrder();renderNav();renderSaved();renderFilterControls();applyAndRender();
+    if(detailTask){
+      const t=TASKS.find(x=>x.id===detailTask.id);
+      if(!t)closeDetail();
+      else{detailTask=t;if(!$("#detail").contains(document.activeElement))fillDetail(t);}
+    }
+    cacheData();markSynced();
+  }catch(e){if(!e.reauth&&!e.offline)console.warn("auto-refresh ("+why+")",e);}
+  finally{_autoBusy=false;_lastPull=Date.now();}
+}
+setInterval(()=>{if(AUTO_REF_SEC>0&&Date.now()-_lastPull>=AUTO_REF_SEC*1000)autoRefresh("timer");},5000);
+document.addEventListener("visibilitychange",()=>{   // back to the app after a while: catch up right away
+  if(document.visibilityState==="visible"&&AUTO_REF_SEC>0&&Date.now()-_lastPull>15000)autoRefresh("resume");
 });
 
 /* ---------------- reminder notifications (web push) ----------------
