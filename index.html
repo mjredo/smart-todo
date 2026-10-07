@@ -414,6 +414,11 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
   .voicecard>.mfoot{justify-content:center}
   @media (max-width:640px){.modal{padding:10px}}
   .mtitle{font-weight:700;font-size:17px}
+  .remstat{font-size:14px}
+  .reminfo{display:flex;flex-direction:column;gap:4px;font-size:13px}
+  .reminfo .remh{font-weight:600;margin-top:8px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .reminfo .remrow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .reminfo .muted{color:var(--muted)}
   .msub{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;margin-top:-6px}
   .msub svg{width:14px;height:14px}
   .mnote{width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:13px;outline:none;resize:vertical;min-height:140px;font-size:15px;line-height:1.55;white-space:pre-wrap}
@@ -666,6 +671,7 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <button class="sec-h">Maintenance<span class="secn"></span></button>
       <div class="secbody">
         <button class="addlist" id="dedupeBtn"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg> Remove duplicates</button>
+        <button class="addlist" id="remindersBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg> Reminder notifications</button>
         <button class="addlist" id="voiceModelBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Voice model</button>
       </div>
     </section>
@@ -1026,6 +1032,8 @@ async function gfetch(path,opts){
   const t=await tok();
   const r=await fetch(path.startsWith("http")?path:GRAPH+path,{...opts,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json",...(opts&&opts.headers)}});
   if(!r.ok){const b=await r.text().catch(()=>"");const e=new Error("Graph "+r.status+": "+b.slice(0,300));e.status=r.status;throw e;}
+  const m=opts&&opts.method;                       // a reminder may have moved: tell the push server now, not in 5 min
+  if(m&&m!=="GET"&&/\/todo\/lists\/[^/]+\/tasks/.test(path)&&(m==="DELETE"||/reminder|status/i.test(opts.body||"")))pushRefreshSoon();
   return r.status===204?null:r.json();
 }
 
@@ -1082,6 +1090,8 @@ async function start(){
   show("app"); updateNetUI(); updateTimerUI(); if(anyTimer())ensureTimerTick();
   restoreNoteDraft();                            // a note box the page died in comes straight back
   restoreAddDraft();                             // …and a half-typed task in the add bar
+  openTaskFromUrl();                             // tapped a reminder notification
+  pushResync();
   if(!isOffline()) flushOutbox();
 }
 async function loadAll(){
@@ -3583,6 +3593,7 @@ function wireUi(){
   $("#newListBtn").onclick=newList;
   $("#dedupeBtn").onclick=()=>{closeSide();cleanupDuplicates();};
   $("#voiceModelBtn").onclick=()=>{closeSide();openVoiceSettings();};
+  $("#remindersBtn").onclick=()=>{closeSide();openReminderSettings();};
   $("#selectBtn").onclick=()=>selMode?exitSelect():setSelectMode(true);
   $("#bulkClear").onclick=exitSelect;
   $("#bulkComplete").onclick=bulkComplete;
@@ -3632,13 +3643,106 @@ boot();
 /* Which copy of the app is actually running. A stale service-worker/browser copy looks
    exactly like a change that never shipped, so the build is on screen (sidebar, under
    Maintenance) and in the console to settle that question in one glance. */
-const APP_BUILD="v22 — sliding-tile reorder";
+const APP_BUILD="v23 — reminder notifications";
 try{$("#buildTag").textContent="Build "+APP_BUILD;console.log("Smart To Do build",APP_BUILD);}catch(_){}
 if("serviceWorker" in navigator)window.addEventListener("load",()=>{
   const had=!!navigator.serviceWorker.controller;      // false on the very first install — not an update
   navigator.serviceWorker.register("sw.js").then(reg=>{try{reg.update();}catch(_){}}).catch(()=>{});
   navigator.serviceWorker.addEventListener("controllerchange",()=>{if(had)toast("App updated — refresh for the latest");});
 });
+
+/* ---------------- reminder notifications (web push) ----------------
+   To Do's own alarms only fire from the To Do app. The push server (push-worker/,
+   a Cloudflare Worker) reads reminders from To Do every few minutes and pushes them
+   to each device switched on here; sw.js shows them with Done / Snooze buttons.
+   Each device opts in on its own: the subscription belongs to the browser. */
+const PUSH_URL=String(CFG.pushUrl||"").replace(/\/+$/,"");
+const PUSH_OK=!!PUSH_URL&&"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window;
+const LS_PUSH="smarttodo.push.v1";
+const b64uBytes=s=>{const b=atob(s.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(s.length/4)*4,"="));return Uint8Array.from(b,c=>c.charCodeAt(0));};
+function deviceName(){
+  const ua=navigator.userAgent, os=/Android/.test(ua)?"Android":/iPhone|iPad/.test(ua)?"iPhone":/Windows/.test(ua)?"Windows":/Mac/.test(ua)?"Mac":"Device";
+  const br=/Edg\//.test(ua)?"Edge":/Chrome\//.test(ua)?"Chrome":/Firefox\//.test(ua)?"Firefox":/Safari\//.test(ua)?"Safari":"browser";
+  return os+" · "+br+(IS_STANDALONE?" (app)":"");
+}
+async function pushApi(path,body){
+  const t=await tok();
+  const r=await fetch(PUSH_URL+path,{method:"POST",headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||("Push server error "+r.status));
+  return j;
+}
+async function pushSub(){if(!PUSH_OK)return null;const reg=await navigator.serviceWorker.ready;return reg.pushManager.getSubscription();}
+async function pushEnable(){
+  if(!PUSH_OK)throw new Error("This browser can't receive push notifications.");
+  if(Notification.permission==="denied")throw new Error("Notifications are blocked for Smart To Do. Allow them in the site/app settings, then try again.");
+  if(await Notification.requestPermission()!=="granted")throw new Error("Notification permission wasn't granted.");
+  const reg=await navigator.serviceWorker.ready;
+  const {key}=await (await fetch(PUSH_URL+"/vapid")).json();
+  let s=await reg.pushManager.getSubscription();
+  if(s){const k=s.options&&s.options.applicationServerKey&&new Uint8Array(s.options.applicationServerKey),w=b64uBytes(key);
+    if(!k||k.length!==w.length||k.some((v,i)=>v!==w[i])){await s.unsubscribe();s=null;}}   // server key changed: start over
+  if(!s)s=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uBytes(key)});
+  await pushApi("/subscribe",{subscription:s.toJSON(),ua:deviceName()});
+  try{localStorage.setItem(LS_PUSH,"1");}catch(_){}
+}
+async function pushDisable(){
+  const s=await pushSub();
+  if(s){try{await pushApi("/unsubscribe",{endpoint:s.endpoint});}catch(e){console.warn(e);}await s.unsubscribe();}
+  try{localStorage.removeItem(LS_PUSH);}catch(_){}
+}
+function pushWanted(){try{return localStorage.getItem(LS_PUSH)==="1";}catch(_){return false;}}
+/* Browsers rotate push subscriptions now and then; re-register quietly on each start. */
+function pushResync(){if(PUSH_OK&&pushWanted()&&Notification.permission==="granted"&&!isOffline())pushEnable().catch(e=>console.warn("push resync",e));}
+let _pushRefT=null;
+function pushRefreshSoon(){
+  if(!PUSH_URL)return;                           // the server ignores this for users with no devices switched on
+  clearTimeout(_pushRefT);_pushRefT=setTimeout(()=>pushApi("/refresh").catch(e=>console.warn("push refresh",e)),2500);
+}
+function openTaskById(id){const t=id&&TASKS.find(x=>x.id===id);if(t)openDetail(t);return !!t;}
+function openTaskFromUrl(){
+  const q=new URLSearchParams(location.search),id=q.get("task");if(!id)return;
+  q.delete("task");history.replaceState(null,"",location.pathname+(q.toString()?"?"+q:"")+location.hash);
+  if(!openTaskById(id))toast("That task is no longer open");
+}
+if("serviceWorker" in navigator)navigator.serviceWorker.addEventListener("message",e=>{
+  if(e.data&&e.data.type==="openTask")openTaskById(e.data.taskId);
+});
+function openReminderSettings(){
+  showModal((card,close)=>{
+    card.innerHTML=`<div class="mtitle">Reminder notifications</div><div class="msub">${svg(IC.bell)}Task reminders pop up on this device, even with the app closed.</div>`;
+    const st=el("div","remstat");card.appendChild(st);
+    const info=el("div","reminfo");card.appendChild(info);
+    const foot=el("div","mfoot");card.appendChild(foot);
+    const btn=(label,cls,fn)=>{const b=el("button","btn2"+(cls?" "+cls:""),label);b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){error(e.message||e);}b.disabled=false;};return b;};
+    const render=async()=>{
+      foot.innerHTML="";info.innerHTML="";
+      if(!PUSH_URL){st.textContent="Not set up: config.js has no pushUrl.";foot.append(btn("Close","",close));return;}
+      if(!PUSH_OK){st.textContent="This browser can't receive push notifications.";foot.append(btn("Close","",close));return;}
+      const sub=await pushSub(), on=!!sub&&pushWanted()&&Notification.permission==="granted";
+      st.innerHTML=on?"<b>On</b> for this device ("+deviceName()+"). Use <b>Done</b> or <b>Snooze 15 min</b> right on the notification."
+        :Notification.permission==="denied"?"<b>Blocked.</b> Allow notifications for Smart To Do in this device's settings."
+        :"<b>Off</b> on this device.";
+      if(on){
+        foot.append(btn("Turn off","",async()=>{await pushDisable();toast("Reminders off on this device");render();}),
+                    btn("Send test","",async()=>{await pushApi("/test",{endpoint:sub.endpoint});toast("Test sent. It should arrive in a few seconds");}),
+                    btn("Close","primary",close));
+        try{
+          const s=await pushApi("/status",{endpoint:sub.endpoint});
+          const fmt=ms=>new Date(ms).toLocaleString(undefined,{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+          info.appendChild(el("div","remh","Devices getting reminders"));
+          s.devices.forEach(d=>info.appendChild(el("div","remrow",(d.ua||"Device")+(d.mine?"  (this one)":""))));
+          info.appendChild(el("div","remh","Coming up"));
+          if(!s.upcoming.length)info.appendChild(el("div","remrow muted","No reminders in the next two days"));
+          s.upcoming.forEach(u=>info.appendChild(el("div","remrow",fmt(u.due)+" · "+u.title)));
+        }catch(e){info.appendChild(el("div","remrow muted","Couldn't reach the reminder server: "+(e.message||e)));}
+      }else{
+        foot.append(btn("Close","",close),btn("Turn on","primary",async()=>{await pushEnable();toast("Reminders on for this device");render();}));
+      }
+    };
+    render();
+  });
+}
 
 /* ---------------- theme toggle (light by default; choice persists) ---------------- */
 (function(){

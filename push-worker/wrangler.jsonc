@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "smart-todo-push",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["* * * * *"] },
+  "kv_namespaces": [{ "binding": "STATE", "id": "ebad512cc26e4c049cae902c90842c9d" }],
+  "vars": {
+    "TENANT_ID": "16cb84d0-6951-4257-b7aa-80657cdaebb5",
+    "CLIENT_ID": "cce7b33a-e049-4ee1-9859-a8d6a6b38a0e",
+    "VAPID_PUBLIC_KEY": "BMc-izV596i1xRiNYEGolmYqjyCoZkZjCgMxxU2Z-Md0V3cUPsd0k_KxSaGvAiYqiy5_DhWjAQCNjiCex7AdwDs",
+    "VAPID_SUBJECT": "https://mjredo.github.io/smart-todo/",
+    "ALLOWED_ORIGINS": "https://mjredo.github.io",
+    "PUBLIC_URL": "https://smart-todo-push.mrnarang.workers.dev"
+  }
+  // secrets (wrangler secret put): CLIENT_SECRET, VAPID_PRIVATE_KEY, ACTION_SECRET
+}

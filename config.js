@@ -18,4 +18,8 @@ window.SMARTTODO_CONFIG = {
   // sign-in redirect. Only set a value here to force a specific redirect URI.
   redirectUri: "",
 
+  // Reminder push server (push-worker/, a Cloudflare Worker). Leave blank to
+  // turn reminder notifications off.
+  pushUrl: "https://smart-todo-push.mrnarang.workers.dev",
+
 };

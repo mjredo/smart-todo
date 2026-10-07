@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v24";   // bump: sidebar favorites, collapsible sections, reorderable lists
+const CACHE = "smarttodo-v25";   // bump: reminder notifications (web push)
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
@@ -33,4 +33,52 @@ self.addEventListener("fetch", e => {
       })
       .catch(() => caches.match(e.request).then(m => m || caches.match("./index.html")))
   );
+});
+
+/* ---------------- reminder notifications ----------------
+   The push server (push-worker/) sends one message per due reminder. Done and
+   Snooze go straight back to it, so they work without opening the app; tapping
+   the notification itself opens the task. */
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: e.data && e.data.text() }; }
+  const actions = d.taskId ? [
+    { action: "done", title: "✓ Done" },
+    { action: "snooze", title: "Snooze 15 min" },
+  ] : [];
+  e.waitUntil(self.registration.showNotification(d.title || "Smart To Do", {
+    body: d.body || "",
+    tag: d.tag || undefined,          // same task twice → replace, never stack
+    renotify: !!d.tag,
+    requireInteraction: !!d.taskId,   // stays until handled, like To Do's alarm
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    data: d,
+    actions,
+  }));
+});
+
+self.addEventListener("notificationclick", e => {
+  const d = e.notification.data || {};
+  e.notification.close();
+  if ((e.action === "done" || e.action === "snooze") && d.api) {
+    e.waitUntil(
+      fetch(d.api + "/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: e.action, user: d.user, listId: d.listId, taskId: d.taskId, tok: d.tok }),
+      }).then(r => { if (!r.ok) throw new Error(r.status); })
+        .catch(() => self.registration.showNotification("Couldn't update the task", {
+          body: (d.title || "") + " — open Smart To Do to finish it.", tag: d.tag, data: { taskId: d.taskId },
+        }))
+    );
+    return;
+  }
+  const url = new URL("./", self.registration.scope);
+  if (d.taskId) url.searchParams.set("task", d.taskId);
+  e.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then(ws => {
+    const w = ws.find(c => c.url.startsWith(self.registration.scope));
+    if (w) { w.postMessage({ type: "openTask", taskId: d.taskId }); return w.focus(); }
+    return clients.openWindow(url.href);
+  }));
 });
