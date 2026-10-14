@@ -507,6 +507,8 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
     background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:11px;box-shadow:var(--shadow-lg);
     opacity:0;transition:.2s;pointer-events:none;z-index:60;font-size:13.5px;font-weight:500}
   .toast.show{opacity:1;transform:translateX(-50%)}
+  .toast.act{pointer-events:auto;display:flex;align-items:center;gap:14px}
+  .toast .tact{background:none;border:0;color:inherit;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
 
   .center{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;text-align:center;padding:24px}
   .center .logo{width:60px;height:60px;border-radius:18px;background:var(--accent);display:grid;place-items:center;color:#fff;box-shadow:var(--shadow-md)}
@@ -696,6 +698,10 @@ catch(e){document.documentElement.setAttribute("data-theme","light");}</script>
       <button class="tool" id="pushTodayBtn" style="display:none" title="Move all of today's open tasks to tomorrow">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 5h12v16H3zM3 9h12M7 3v4M11 3v4M14 15h8M19 12l3 3-3 3"/></svg>
         <span class="hide-sm">Today → Tomorrow</span>
+      </button>
+      <button class="tool" id="pushWeekendBtn" style="display:none" title="Move all of today's open tasks to Monday">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M3 5h12v16H3zM3 9h12M7 3v4M11 3v4M14 15h8M19 12l3 3-3 3"/></svg>
+        <span class="hide-sm">Today → Monday</span>
       </button>
       <button class="tool" id="selectBtn" title="Select multiple tasks">
         <svg class="icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
@@ -1619,6 +1625,8 @@ function updateNavCounts(){
     b_done:TASKS.filter(t=>t.status==="completed").length};
   $$("#builtins .navbtn").forEach(b=>b.querySelector(".ct").textContent=c[b.dataset.nav]||"");
   const pb=$("#pushTodayBtn");if(pb)pb.style.display=c.b_today?"":"none";   // only offer it when there's something to push
+  const wb=$("#pushWeekendBtn"),dow=today.getDay();                         // Fri/Sat/Sun: skip the weekend in one tap
+  if(wb)wb.style.display=c.b_today&&(dow===5||dow===6||dow===0)?"":"none";
   $$("#listNav .navbtn").forEach(b=>{const n=open.filter(t=>t._listId===b.dataset.list).length;b.querySelector(".ct").textContent=n||"";});
   updateFocusCounts();
   updateSavedCounts();
@@ -2662,14 +2670,18 @@ function bulkSetDue(iso){
   ts.forEach(t=>{const d=taskDue(t);if((d?ymd(d):"")!==want)setDue(t,iso);});
   toast(iso?`Moved ${ts.length} to ${fmtDate(parseYMD(iso))}`:`Cleared due date on ${ts.length}`);exitSelect();
 }
-function pushTodayToTomorrow(){                          // one tap: every open task due today → tomorrow
+/* No confirm() here: native dialogs block browser automation (Claude in Chrome
+   can't click them), so the push happens at once and the toast offers Undo. */
+function pushTodayTo(iso,label){                         // one tap: every open task due today → iso
   const today=startOfToday().getTime();
   const ts=TASKS.filter(t=>{if(t.status==="completed")return false;const d=taskDue(t);return d&&d.getTime()===today;});
   if(!ts.length){toast("Nothing due today");return;}
-  if(!confirm(`Move ${ts.length} open task${ts.length>1?"s":""} due today to tomorrow?`))return;
-  const tmr=isoPlus(1);ts.forEach(t=>setDue(t,tmr));
-  toast(`Pushed ${ts.length} to tomorrow`);
+  const was=isoPlus(0);ts.forEach(t=>setDue(t,iso));
+  toast(`Pushed ${ts.length} to ${label}`,{label:"Undo",onClick:()=>{
+    ts.forEach(t=>setDue(t,was));toast(`Moved ${ts.length} back to today`);}});
 }
+function pushTodayToTomorrow(){pushTodayTo(isoPlus(1),"tomorrow");}
+function pushTodayToMonday(){pushTodayTo(nextDowISO(1),"Monday");}
 function popMenu(anchor,items){                          // small dropdown, mirrors openFocusMenu positioning
   closeMenu();
   const m=el("div","menu");
@@ -3609,6 +3621,7 @@ function wireUi(){
   $("#bulkFocus").onclick=e=>bulkFocus(e.currentTarget);
   $("#bulkDue").onclick=e=>bulkDue(e.currentTarget);
   $("#pushTodayBtn").onclick=pushTodayToTomorrow;
+  $("#pushWeekendBtn").onclick=pushTodayToMonday;
   $("#bulkMove").onclick=e=>bulkMove(e.currentTarget);
   $("#bulkDelete").onclick=bulkDelete;
   $("#bulkUnfocus").onclick=removeSelFromFocus;
@@ -3632,7 +3645,10 @@ function setTitle(t){$("#viewTitle").textContent=t;}
 /* ---------------- helpers ---------------- */
 function show(id){["gate","noconfig","loading","app"].forEach(x=>$("#"+x).style.display=x===id?(x==="app"?"grid":"flex"):"none");}
 function error(msg){const h=$("#errHost");h.innerHTML="";h.appendChild(el("div","banner","⚠ "+msg));setTimeout(()=>{h.innerHTML="";},8000);}
-let toastTimer;function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),1900);}
+let toastTimer;function toast(m,action){               // action {label,onClick} adds a button and keeps it up longer
+  const t=$("#toast");t.textContent=m;t.classList.toggle("act",!!action);
+  if(action){const b=el("button","tact",action.label);b.onclick=()=>{clearTimeout(toastTimer);t.classList.remove("show","act");action.onClick();};t.appendChild(b);}
+  t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show","act"),action?6000:1900);}
 
 window.addEventListener("online",async()=>{
   if(!(await netProbe()))return;                 // the event fires before the link is usable often enough
