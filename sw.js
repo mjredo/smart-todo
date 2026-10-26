@@ -1,5 +1,5 @@
 /* Smart To Do - service worker (app shell only; never touches auth/Graph) */
-const CACHE = "smarttodo-v27";   // bump: undo push, Today → Monday
+const CACHE = "smarttodo-v28";   // bump: throttle-safe refresh
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./config.js",
   "./msal-browser.min.js",
