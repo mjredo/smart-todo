@@ -1040,7 +1040,19 @@ async function retryAuth(){
 async function gfetch(path,opts){
   if(opts&&opts.method==="PUT"&&path.includes("/approot:"))_prefsTouchedAt=Date.now();
   const t=await tok();
-  const r=await fetch(path.startsWith("http")?path:GRAPH+path,{...opts,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json",...(opts&&opts.headers)}});
+  const url=path.startsWith("http")?path:GRAPH+path, idem=!opts||!opts.method||opts.method==="GET";
+  let r;
+  /* Graph throttles bursts (429), and To Do answers the odd 503/504 when busy. Wait
+     out its Retry-After and try again rather than failing — a failed list read used
+     to drop that whole list off the screen until the next refresh. 429 means the
+     request wasn't processed, so any method may retry it; 5xx only for reads. */
+  for(let i=0;;i++){
+    r=await fetch(url,{...opts,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json",...(opts&&opts.headers)}});
+    const retryable=r.status===429||(idem&&(r.status===503||r.status===504));
+    if(!retryable||i>=3)break;
+    const ra=+r.headers.get("Retry-After");
+    await new Promise(res=>setTimeout(res,Math.min(ra>0?ra*1000:1000*2**i,10000)+Math.random()*400));
+  }
   if(!r.ok){const b=await r.text().catch(()=>"");const e=new Error("Graph "+r.status+": "+b.slice(0,300));e.status=r.status;throw e;}
   const m=opts&&opts.method;                       // a reminder may have moved: tell the push server now, not in 5 min
   if(m&&m!=="GET"&&/\/todo\/lists\/[^/]+\/tasks/.test(path)&&(m==="DELETE"||/reminder|status/i.test(opts.body||"")))pushRefreshSoon();
@@ -1107,12 +1119,13 @@ async function start(){
 async function loadAll(){
   const lists=await pageAll("/me/todo/lists");   // throws before anything is committed
   LISTS=lists; _loadSeq++;                       // from here on the sidebar has real lists to show
-  /* Fetch every list's tasks IN PARALLEL rather than one-after-another. On mobile
-     the old serial loop waited for the sum of every list's latency; this waits for
-     just the slowest, which is the biggest win against first-load lag. Graph tokens
+  /* Fetch the lists' tasks IN PARALLEL (four at a time) rather than one-after-another.
+     On mobile the old serial loop waited for the sum of every list's latency; this is
+     close to just the slowest, which is the biggest win against first-load lag. Graph tokens
      are cached by MSAL, so the concurrent gfetch calls don't each re-authenticate. */
   let failed=0, fatal=null;
-  const results=await Promise.all(lists.map(async L=>{
+  const prev=TASKS;
+  const results=await mapLimit(lists,4,async L=>{
     try{
       const ts=await pageAll(`/me/todo/lists/${L.id}/tasks?$top=100&$expand=checklistItems`);
       for(const t of ts){t._listId=L.id;t._listName=L.displayName;}
@@ -1120,19 +1133,30 @@ async function loadAll(){
     }catch(e){
       if(e&&(e.offline||e.reauth)){fatal=fatal||e;return null;}   // whole-session problem — surface it below
       failed++; console.warn("Couldn't load tasks for “"+L.displayName+"”",e);
-      return null;
+      /* Keep what we last had for this list instead of blanking it — otherwise a
+         throttled read makes the list vanish and reappear from one refresh to the next. */
+      const kept=prev.filter(t=>t._listId===L.id);
+      return kept.length?kept:null;
     }
-  }));
+  });
   if(fatal)throw fatal;                            // start() handles offline / reauth
   const all=[];
   results.forEach(ts=>{if(ts)for(const t of ts)all.push(t);});
   if(failed&&failed===lists.length)throw new Error("Couldn't load tasks from any list");
   TASKS=all; rebuildTags();
   _partialLoad=failed>0;                          // keep the partial set off-screen only, never in the cache
-  if(_partialLoad)error(failed+" list"+(failed>1?"s":"")+" couldn't be loaded — use Refresh to try again.");
+  const lost=results.filter(ts=>ts===null).length;   // lists with nothing kept from before — only those are worth a warning
+  if(lost)error(lost+" list"+(lost>1?"s":"")+" couldn't be loaded — use Refresh to try again.");
   return failed;
 }
 function rebuildTags(){const s=new Set();for(const t of TASKS)parseTags(t.title||"").forEach(x=>s.add(x));TAGS=[...s].sort((a,b)=>a.localeCompare(b));}
+/* Run fn over items with at most n in flight: a few lists at a time is nearly as quick
+   as all at once, and doesn't trip Graph's burst throttling the way 20+ at once does. */
+async function mapLimit(items,n,fn){
+  const out=new Array(items.length);let next=0;
+  await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(next<items.length){const i=next++;out[i]=await fn(items[i]);}}));
+  return out;
+}
 async function pageAll(path){let out=[],next=path;while(next){const j=await gfetch(next);out=out.concat(j.value||[]);next=j["@odata.nextLink"]||null;}return out;}
 function parseTags(t){return (t.match(/#[\p{L}\d_\-]+/gu)||[]).map(s=>s.slice(1).toLowerCase());}
 
@@ -1727,9 +1751,10 @@ function saveFocus(){
 function readOrderLS(){try{const a=JSON.parse(localStorage.getItem(LS_ORDER)||"[]");return Array.isArray(a)?a.filter(x=>typeof x==="string"):[];}catch{return[];}}
 async function loadOrder(){
   try{const j=await gfetch(CLOUD_ORDER);const a=Array.isArray(j)?j:(j&&j.order)||[];
-    const o=a.filter(x=>typeof x==="string");localStorage.setItem(LS_ORDER,JSON.stringify(o));return o;}
-  catch(e){return readOrderLS();}                       // 404 (no file yet) or offline → local copy
+    const o=a.filter(x=>typeof x==="string");localStorage.setItem(LS_ORDER,JSON.stringify(o));_orderStale=false;return o;}
+  catch(e){_orderStale=e.status!==404;return readOrderLS();}   // 404 (no file yet) or offline → local copy
 }
+let _orderStale=false;   // the cloud order couldn't be read: don't write a stand-in over it
 function saveOrder(){
   localStorage.setItem(LS_ORDER,JSON.stringify(ORDER));
   if(cloudOK)gfetch(CLOUD_ORDER,{method:"PUT",body:JSON.stringify(ORDER)}).catch(()=>{});
@@ -1739,7 +1764,7 @@ function rankOf(t){const r=_rank.get(t.id);return r===undefined?Infinity:r;}
 function ensureRanked(rows){                            // give newly-seen tasks a slot, keeping the order they're shown in
   let added=false;
   for(const t of rows)if(!_rank.has(t.id)){ORDER.push(t.id);_rank.set(t.id,ORDER.length-1);added=true;}
-  if(added)saveOrder();
+  if(added&&!_orderStale)saveOrder();
 }
 /* Reorder within a filtered view: the visible tasks keep the slots they already
    occupy in the stored order, but get re-dealt into the new sequence. Anything not
